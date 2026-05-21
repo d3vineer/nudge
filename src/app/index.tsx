@@ -1,98 +1,145 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
+import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
+import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { dailyQueue, weakTopics } from '@/constants/study-flow';
+import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+export default function DashboardScreen() {
+  const theme = useTheme();
 
-export default function HomeScreen() {
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
+    <StudyScreen
+      eyebrow="Adaptive study flow"
+      title="Today’s memory plan is ready"
+      subtitle="Nudge blends active recall, spaced repetition, and focused sessions into one calm queue.">
+      <View style={styles.heroGrid}>
+        <StudyCard tone="darkSurface" style={styles.heroCard}>
+          <ThemedText type="caption" style={{ color: theme.brandMint }}>
+            Forgetting risk
           </ThemedText>
-        </ThemedView>
+          <ThemedText type="metric" style={{ color: theme.onDark }}>
+            23%
+          </ThemedText>
+          <ThemedText type="small" style={{ color: theme.textMuted }}>
+            Lower than last Thursday after two strong reviews.
+          </ThemedText>
+          <View style={styles.buttonRow}>
+            <ActionButton label="Start queue" />
+            <ActionButton label="Upload source" variant="secondary" />
+          </View>
+        </StudyCard>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+        <View style={styles.metricGrid}>
+          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandLavender }]}>
+            <ThemedText type="caption">Due now</ThemedText>
+            <ThemedText type="metric">26</ThemedText>
+            <ThemedText type="small">cards across 3 courses</ThemedText>
+          </StudyCard>
+          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandPeach }]}>
+            <ThemedText type="caption">Deep work</ThemedText>
+            <ThemedText type="metric">50</ThemedText>
+            <ThemedText type="small">minute session suggested</ThemedText>
+          </StudyCard>
+        </View>
+      </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+      <View style={styles.grid}>
+        <StudyCard style={styles.column}>
+          <SectionHeader title="Daily Queue" detail="Ordered by predicted recall drop." />
+          {dailyQueue.map((item) => (
+            <ThemedView key={item.title} style={styles.queueItem}>
+              <View
+                style={[
+                  styles.accentDot,
+                  { backgroundColor: theme[item.accent as keyof typeof theme] },
+                ]}
+              />
+              <View style={styles.queueCopy}>
+                <ThemedText type="smallBold">{item.title}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {item.course}
+                </ThemedText>
+              </View>
+              <ThemedText type="smallBold">{item.due}</ThemedText>
+            </ThemedView>
+          ))}
+        </StudyCard>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+        <StudyCard style={styles.column}>
+          <SectionHeader title="Weak Topics" detail="Needs interleaving this week." />
+          <View style={styles.topicWrap}>
+            {weakTopics.map((topic) => (
+              <ThemedView key={topic} type="backgroundElement" style={styles.topicPill}>
+                <ThemedText type="smallBold">{topic}</ThemedText>
+              </ThemedView>
+            ))}
+          </View>
+        </StudyCard>
+      </View>
+    </StudyScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
+  heroGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.three,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
+  heroCard: {
+    flexGrow: 2,
+    flexBasis: 440,
+  },
+  metricGrid: {
+    flexGrow: 1,
+    flexBasis: 300,
+    gap: Spacing.three,
+  },
+  metricCard: {
+    minHeight: 148,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.three,
+  },
+  column: {
+    flexGrow: 1,
+    flexBasis: 360,
+  },
+  queueItem: {
+    backgroundColor: 'transparent',
+    flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+    paddingVertical: Spacing.two,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  accentDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+  },
+  queueCopy: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    gap: Spacing.one,
   },
-  title: {
-    textAlign: 'center',
+  topicWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
   },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
+  topicPill: {
+    borderRadius: 999,
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+    paddingVertical: Spacing.two,
   },
 });

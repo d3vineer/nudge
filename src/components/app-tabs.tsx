@@ -11,21 +11,50 @@ export default function AppTabs() {
   return (
     <NativeTabs
       backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
+      iconColor={{ default: colors.textSecondary, selected: colors.text }}
+      indicatorColor={colors.backgroundSelected}
+      labelStyle={{
+        default: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+        selected: { color: colors.text, fontSize: 12, fontWeight: '700' },
+      }}
+      tintColor={colors.text}>
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
+          sf={{ default: 'rectangle.grid.2x2', selected: 'rectangle.grid.2x2.fill' }}
+          md="dashboard"
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="library">
+        <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
+          sf={{ default: 'books.vertical', selected: 'books.vertical.fill' }}
+          md="library_books"
+        />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="study">
+        <NativeTabs.Trigger.Label>Study</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf={{ default: 'timer', selected: 'timer' }} md="timer" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="reviews">
+        <NativeTabs.Trigger.Label>Reviews</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'rectangle.stack', selected: 'rectangle.stack.fill' }}
+          md="style"
+        />
+        <NativeTabs.Trigger.Badge selectedBackgroundColor={colors.brandPink}>
+          26
+        </NativeTabs.Trigger.Badge>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="analytics">
+        <NativeTabs.Trigger.Label>Analytics</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'chart.line.uptrend.xyaxis', selected: 'chart.line.uptrend.xyaxis' }}
+          md="insights"
         />
       </NativeTabs.Trigger>
     </NativeTabs>
