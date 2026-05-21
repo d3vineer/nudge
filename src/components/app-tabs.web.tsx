@@ -8,12 +8,14 @@ import {
 } from 'expo-router/ui';
 import type { Href } from 'expo-router';
 import React from 'react';
-import { Pressable, useColorScheme, useWindowDimensions, View, StyleSheet } from 'react-native';
+import { Pressable, useWindowDimensions, View, StyleSheet } from 'react-native';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useThemeController } from '@/components/theme-controller';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function AppTabs() {
   const { width } = useWindowDimensions();
@@ -65,9 +67,8 @@ export function TabButton({
 }
 
 export function CustomTabList(props: TabListProps) {
-  const scheme = useColorScheme();
   const { width } = useWindowDimensions();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const colors = useTheme();
   const compact = width < 620;
 
   return (
@@ -95,8 +96,43 @@ export function CustomTabList(props: TabListProps) {
         </ThemedView>
 
         {props.children}
+
+        <ThemeToggle compact={compact} />
       </ThemedView>
     </View>
+  );
+}
+
+function ThemeToggle({ compact }: { compact: boolean }) {
+  const { mode, toggleMode } = useThemeController();
+  const colors = useTheme();
+  const nextMode = mode === 'dark' ? 'light' : 'dark';
+
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: mode === 'dark' }}
+      accessibilityLabel={`Switch to ${nextMode} theme`}
+      onPress={toggleMode}
+      style={({ pressed }) => [
+        styles.themeToggle,
+        {
+          borderColor: colors.hairline,
+          backgroundColor: colors.background,
+          opacity: pressed ? 0.72 : 1,
+        },
+      ]}>
+      <ThemedText type="smallBold">{compact ? (mode === 'dark' ? 'D' : 'L') : mode}</ThemedText>
+      <ThemedView
+        style={[
+          styles.themeToggleKnob,
+          {
+            backgroundColor: colors.primary,
+            transform: [{ translateX: mode === 'dark' ? 14 : 0 }],
+          },
+        ]}
+      />
+    </Pressable>
   );
 }
 
@@ -163,5 +199,22 @@ const styles = StyleSheet.create({
   },
   tabButtonViewCompact: {
     paddingHorizontal: Spacing.two,
+  },
+  themeToggle: {
+    minWidth: 74,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingLeft: Spacing.two,
+    paddingRight: Spacing.one,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.one,
+  },
+  themeToggleKnob: {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
   },
 });
