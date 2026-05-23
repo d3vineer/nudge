@@ -16,7 +16,18 @@ type StudyPack = {
   weak_topics: string[];
 };
 
-const minimumUsefulCharacters = 500;
+type GeminiSchema =
+  | { type: 'STRING' }
+  | { items: GeminiSchema; type: 'ARRAY' }
+  | { properties: Record<string, GeminiSchema>; required?: string[]; type: 'OBJECT' };
+
+function minimumUsefulCharacters(source: SourceRow) {
+  return source.mime_type === 'text/plain' ? 20 : 500;
+}
+
+function logStage(sourceId: string, stage: string, detail?: string) {
+  console.log(JSON.stringify({ detail, sourceId, stage }));
+}
 
 function estimateTokens(text: string) {
   return Math.ceil(text.length / 4);
@@ -42,27 +53,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   }
 
   return btoa(binary);
-}
-
-function extractOutputText(response: Record<string, unknown>) {
-  if (typeof response.output_text === 'string') {
-    return response.output_text;
-  }
-
-  const output = Array.isArray(response.output) ? response.output : [];
-  for (const item of output) {
-    const content = (item as { content?: unknown }).content;
-    if (!Array.isArray(content)) continue;
-
-    for (const part of content) {
-      const text = (part as { text?: unknown }).text;
-      if (typeof text === 'string') {
-        return text;
-      }
-    }
-  }
-
-  throw new Error('OpenAI response did not include output text.');
 }
 
 async function downloadSource(path: string) {
@@ -108,18 +98,21 @@ async function extractText(source: SourceRow, fileBuffer: ArrayBuffer) {
 }
 
 async function createEmbeddings(chunks: string[]) {
-  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is required.');
+    throw new Error('GEMINI_API_KEY is required.');
   }
 
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${apiKey}`, {
     body: JSON.stringify({
-      input: chunks,
-      model: 'text-embedding-3-small',
+      requests: chunks.map((chunk) => ({
+        content: {
+          parts: [{ text: chunk }],
+        },
+        model: 'models/gemini-embedding-001',
+      })),
     }),
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     method: 'POST',
@@ -127,82 +120,73 @@ async function createEmbeddings(chunks: string[]) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data?.error?.message ?? 'Embedding request failed.');
+    throw new Error(data?.error?.message ?? 'Gemini embedding request failed.');
   }
 
-  return data.data.map((item: { embedding: number[] }) => item.embedding);
+  return data.embeddings.map((item: { values: number[] }) => item.values);
 }
 
 async function generateStudyPack(source: SourceRow, chunks: string[]): Promise<StudyPack> {
-  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is required.');
+    throw new Error('GEMINI_API_KEY is required.');
   }
 
-  const schema = {
-    additionalProperties: false,
+  const schema: GeminiSchema = {
     properties: {
-      detailed_notes: { items: { type: 'string' }, type: 'array' },
+      detailed_notes: { items: { type: 'STRING' }, type: 'ARRAY' },
       flashcards: {
         items: {
-          additionalProperties: false,
           properties: {
-            back: { type: 'string' },
-            front: { type: 'string' },
+            back: { type: 'STRING' },
+            front: { type: 'STRING' },
           },
           required: ['front', 'back'],
-          type: 'object',
+          type: 'OBJECT',
         },
-        type: 'array',
+        type: 'ARRAY',
       },
       quiz: {
         items: {
-          additionalProperties: false,
           properties: {
-            answer: { type: 'string' },
-            choices: { items: { type: 'string' }, type: 'array' },
-            question: { type: 'string' },
+            answer: { type: 'STRING' },
+            choices: { items: { type: 'STRING' }, type: 'ARRAY' },
+            question: { type: 'STRING' },
           },
           required: ['question', 'choices', 'answer'],
-          type: 'object',
+          type: 'OBJECT',
         },
-        type: 'array',
+        type: 'ARRAY',
       },
-      summary: { type: 'string' },
-      weak_topics: { items: { type: 'string' }, type: 'array' },
+      summary: { type: 'STRING' },
+      weak_topics: { items: { type: 'STRING' }, type: 'ARRAY' },
     },
     required: ['summary', 'detailed_notes', 'flashcards', 'quiz', 'weak_topics'],
-    type: 'object',
+    type: 'OBJECT',
   };
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const model = Deno.env.get('GEMINI_GENERATION_MODEL') ?? 'gemini-2.5-flash';
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     body: JSON.stringify({
-      input: [
+      contents: [
         {
-          content: [
+          parts: [
             {
               text:
                 `Create a focused study pack from the uploaded source "${source.title}". ` +
                 'Use only the provided source text. Prefer active recall, FSRS-friendly flashcards, and concise quiz answers.\n\n' +
                 chunks.join('\n\n---\n\n').slice(0, 80_000),
-              type: 'input_text',
             },
           ],
           role: 'user',
         },
       ],
-      model: Deno.env.get('OPENAI_GENERATION_MODEL') ?? 'gpt-5-mini',
-      text: {
-        format: {
-          name: 'nudge_study_pack',
-          schema,
-          strict: true,
-          type: 'json_schema',
-        },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: schema,
       },
     }),
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     method: 'POST',
@@ -210,10 +194,15 @@ async function generateStudyPack(source: SourceRow, chunks: string[]): Promise<S
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data?.error?.message ?? 'Study pack generation failed.');
+    throw new Error(data?.error?.message ?? 'Gemini study pack generation failed.');
   }
 
-  return JSON.parse(extractOutputText(data)) as StudyPack;
+  const text = data.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+  if (!text) {
+    throw new Error('Gemini response did not include JSON text.');
+  }
+
+  return JSON.parse(text) as StudyPack;
 }
 
 Deno.serve(async (request) => {
@@ -232,11 +221,13 @@ Deno.serve(async (request) => {
     if (!sourceId) {
       return json({ error: 'sourceId is required.' }, 400);
     }
+    logStage(sourceId, 'received');
 
     await Promise.all([
       updateSource(sourceId, { progress: 20, stage: 'extract_text', status: 'processing' }),
       updateJob(sourceId, { stage: 'extract_text', status: 'running' }),
     ]);
+    logStage(sourceId, 'extract_text');
 
     const [source] = await supabaseFetch<SourceRow[]>(`/rest/v1/sources?id=eq.${sourceId}&select=*`);
     if (!source) {
@@ -245,8 +236,9 @@ Deno.serve(async (request) => {
 
     const fileBuffer = await downloadSource(source.storage_path);
     const text = await extractText(source, fileBuffer);
+    logStage(sourceId, 'extracted', `${text.trim().length} chars from ${source.mime_type}`);
 
-    if (text.trim().length < minimumUsefulCharacters) {
+    if (text.trim().length < minimumUsefulCharacters(source)) {
       await Promise.all([
         updateSource(sourceId, {
           error: 'Text extraction was too short. OCR is needed for this source.',
@@ -260,6 +252,7 @@ Deno.serve(async (request) => {
           status: 'needs_ocr',
         }),
       ]);
+      logStage(sourceId, 'needs_ocr', `Only ${text.trim().length} chars extracted.`);
       return json({ sourceId, stage: 'ocr', status: 'needs_ocr' });
     }
 
@@ -268,12 +261,17 @@ Deno.serve(async (request) => {
       updateJob(sourceId, { stage: 'chunk' }),
     ]);
     const chunks = chunkText(text);
+    logStage(sourceId, 'chunk', `${chunks.length} chunks`);
 
     await Promise.all([
       updateSource(sourceId, { progress: 62, stage: 'embed' }),
       updateJob(sourceId, { stage: 'embed' }),
     ]);
+    logStage(sourceId, 'embed');
     const embeddings = await createEmbeddings(chunks);
+    await supabaseFetch(`/rest/v1/chunks?source_id=eq.${sourceId}`, {
+      method: 'DELETE',
+    });
     await supabaseFetch('/rest/v1/chunks', {
       json: chunks.map((chunk, index) => ({
         chunk_index: index,
@@ -289,7 +287,11 @@ Deno.serve(async (request) => {
       updateSource(sourceId, { progress: 78, stage: 'generate' }),
       updateJob(sourceId, { stage: 'generate' }),
     ]);
+    logStage(sourceId, 'generate');
     const studyPack = await generateStudyPack(source, chunks);
+    await supabaseFetch(`/rest/v1/generated_assets?source_id=eq.${sourceId}`, {
+      method: 'DELETE',
+    });
     await supabaseFetch('/rest/v1/generated_assets', {
       headers: { Prefer: 'return=representation' },
       json: {
@@ -314,10 +316,12 @@ Deno.serve(async (request) => {
         status: 'completed',
       }),
     ]);
+    logStage(sourceId, 'complete');
 
     return json({ sourceId, stage: 'complete', status: 'ready' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Processing failed.';
+    console.error(JSON.stringify({ error: message, sourceId, stage: 'failed' }));
     if (sourceId) {
       try {
         await Promise.all([

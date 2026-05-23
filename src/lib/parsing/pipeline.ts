@@ -1,9 +1,8 @@
 import { cacheAsset, cacheSource } from '@/lib/parsing/cache';
 import {
   createUpload,
+  fetchAllSourceAssets,
   fetchSourceAssets,
-  listGeneratedAssets,
-  listSources,
   startProcessing,
   uploadOriginal,
 } from '@/lib/parsing/supabase-api';
@@ -35,14 +34,31 @@ export async function uploadAndProcessFile(file: PickedStudyFile): Promise<Uploa
   const blob = await fileToBlob(file);
   await uploadOriginal(upload.upload.path, blob, file.mimeType);
 
-  await startProcessing(upload.source.id);
-  const processingSource: SourceRecord = {
-    ...upload.source,
-    progress: Math.max(upload.source.progress, 36),
-    stage: 'extract_text',
-    status: 'processing',
-    updatedAt: new Date().toISOString(),
-  };
+  let processingSource: SourceRecord;
+  try {
+    const processResult = await startProcessing(upload.source.id);
+    const refreshed = await refreshSource(upload.source.id);
+    processingSource = refreshed.source ?? {
+      ...upload.source,
+      progress: processResult.status === 'ready' ? 100 : Math.max(upload.source.progress, 36),
+      stage: processResult.stage as SourceRecord['stage'],
+      status: processResult.status as SourceRecord['status'],
+      updatedAt: new Date().toISOString(),
+    };
+    return {
+      asset: refreshed.assets[0] ?? null,
+      source: processingSource,
+    };
+  } catch (error) {
+    processingSource = {
+      ...upload.source,
+      error: error instanceof Error ? error.message : 'Processing failed.',
+      progress: 100,
+      stage: 'failed',
+      status: 'failed',
+      updatedAt: new Date().toISOString(),
+    };
+  }
   await cacheSource(processingSource);
 
   return {
@@ -62,7 +78,7 @@ export async function uploadAndProcessFiles(files: PickedStudyFile[]) {
 }
 
 export async function refreshParsingState() {
-  const [sources, assets] = await Promise.all([listSources(), listGeneratedAssets()]);
+  const { assets, sources } = await fetchAllSourceAssets();
 
   await Promise.all([
     ...sources.map(cacheSource),

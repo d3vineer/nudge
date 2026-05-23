@@ -50,11 +50,16 @@ function requireConfig() {
 }
 
 function headers(contentType = 'application/json') {
-  return {
-    Authorization: `Bearer ${env.supabaseAnonKey}`,
+  const nextHeaders: Record<string, string> = {
     'Content-Type': contentType,
     apikey: env.supabaseAnonKey,
   };
+
+  if (env.supabaseAnonKey.includes('.')) {
+    nextHeaders.Authorization = `Bearer ${env.supabaseAnonKey}`;
+  }
+
+  return nextHeaders;
 }
 
 function functionUrl(name: string) {
@@ -133,7 +138,6 @@ export async function uploadOriginal(path: string, file: Blob, mimeType: string)
   const response = await fetch(storageUrl(path), {
     body: file,
     headers: {
-      Authorization: `Bearer ${env.supabaseAnonKey}`,
       'Content-Type': mimeType,
       apikey: env.supabaseAnonKey,
       'x-upsert': 'false',
@@ -167,6 +171,20 @@ export async function fetchSourceAssets(sourceId: string) {
   return {
     assets: data.assets.map(mapAssetRow),
     source: data.source ? mapSourceRow(data.source) : null,
+  };
+}
+
+export async function fetchAllSourceAssets() {
+  requireConfig();
+
+  const response = await fetch(functionUrl('get-source-assets'), {
+    headers: headers(),
+  });
+  const data = await readResponse<{ assets: AssetRow[]; sources: SourceRow[] }>(response);
+
+  return {
+    assets: data.assets.map(mapAssetRow),
+    sources: data.sources.map(mapSourceRow),
   };
 }
 

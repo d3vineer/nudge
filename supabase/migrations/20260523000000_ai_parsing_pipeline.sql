@@ -20,7 +20,7 @@ create table if not exists public.chunks (
   chunk_index integer not null,
   text text not null,
   token_count integer not null default 0,
-  embedding extensions.vector(1536),
+  embedding extensions.vector(3072),
   created_at timestamptz not null default now(),
   unique (source_id, chunk_index)
 );

@@ -10,7 +10,18 @@ Deno.serve(async (request) => {
     const sourceId = url.searchParams.get('sourceId');
 
     if (!sourceId) {
-      return json({ error: 'sourceId is required.' }, 400);
+      const sources = await supabaseFetch<Array<Record<string, unknown>>>(
+        '/rest/v1/sources?select=*&order=created_at.desc'
+      );
+      const assets = await supabaseFetch<Array<Record<string, unknown>>>(
+        '/rest/v1/generated_assets?select=*&order=created_at.desc'
+      );
+
+      return json({
+        assets,
+        source: null,
+        sources,
+      });
     }
 
     const sources = await supabaseFetch<Array<Record<string, unknown>>>(

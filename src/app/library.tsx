@@ -89,6 +89,23 @@ function countAssets(source: SourceRecord, assets: GeneratedAssetRecord[]) {
   };
 }
 
+function mergeRemoteWithLocalDiagnostics(remoteSources: SourceRecord[], localSources: SourceRecord[]) {
+  const localById = new Map(localSources.map((source) => [source.id, source]));
+
+  return remoteSources.map((remoteSource) => {
+    const localSource = localById.get(remoteSource.id);
+    if (
+      localSource?.status === 'failed' &&
+      localSource.error &&
+      (remoteSource.status === 'queued' || remoteSource.status === 'uploading')
+    ) {
+      return localSource;
+    }
+
+    return remoteSource;
+  });
+}
+
 export default function LibraryScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -120,7 +137,7 @@ export default function LibraryScreen() {
 
     try {
       const nextState = await refreshParsingState();
-      setSources(nextState.sources);
+      setSources((current) => mergeRemoteWithLocalDiagnostics(nextState.sources, current));
       setAssets(nextState.assets);
       setUploadMessage('Library refreshed from Supabase.');
     } catch (error) {
@@ -167,8 +184,15 @@ export default function LibraryScreen() {
 
       const results = await uploadAndProcessFiles(files);
       setSources((current) => [...results.map((result) => result.source), ...current]);
-      setUploadMessage(`${files.length} source${files.length === 1 ? '' : 's'} uploaded and queued.`);
-      await refresh();
+      const failedResults = results.filter((result) => result.source.status === 'failed');
+      setUploadMessage(
+        failedResults.length > 0
+          ? failedResults[0].source.error ?? 'Upload succeeded, but processing did not start.'
+          : `${files.length} source${files.length === 1 ? '' : 's'} uploaded and queued.`
+      );
+      if (failedResults.length === 0) {
+        await refresh();
+      }
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : 'Upload failed.');
     } finally {
@@ -264,6 +288,11 @@ export default function LibraryScreen() {
                 <ThemedText type="small" themeColor="textSecondary">
                   {inferType(source)} - {formatSize(source.size)} - {formatDate(source.createdAt)}
                 </ThemedText>
+                {source.error && (
+                  <ThemedText type="smallBold" style={{ color: theme.error }}>
+                    {source.error}
+                  </ThemedText>
+                )}
                 <ThemedView style={styles.progressTrack}>
                   <View
                     style={[
