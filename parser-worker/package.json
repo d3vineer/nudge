@@ -1,0 +1,12 @@
+{
+  "name": "nudge-parser-worker",
+  "private": true,
+  "scripts": {
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@types/node": "latest",
+    "tsx": "latest"
+  },
+  "devDependencies": {}
+}

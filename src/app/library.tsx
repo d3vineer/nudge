@@ -1,30 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Platform, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { sources } from '@/constants/study-flow';
+import { hasSupabaseConfig } from '@/lib/env';
+import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
+import { pickStudyFiles } from '@/lib/parsing/document-picker';
+import { getFixtureAssets, getFixtureSources } from '@/lib/parsing/fixtures';
+import { refreshParsingState, uploadAndProcessFiles } from '@/lib/parsing/pipeline';
+import { startProcessing } from '@/lib/parsing/supabase-api';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-type LibrarySource = {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  progress: number;
-  size: string;
-  importedAt: string;
-  course: string;
-  assets: {
-    notes: number;
-    flashcards: number;
-    quizzes: number;
-  };
-};
+import type { GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
 
 function formatSize(size?: number) {
   if (!size) {
@@ -38,170 +28,197 @@ function formatSize(size?: number) {
   return `${Math.max(1, Math.round(size / 1024))} KB`;
 }
 
-function inferType(name: string, mimeType?: string) {
-  const lowerName = name.toLowerCase();
+function inferType(source: SourceRecord) {
+  const lowerTitle = source.title.toLowerCase();
 
-  if (mimeType?.includes('pdf') || lowerName.endsWith('.pdf')) {
+  if (source.mimeType.includes('pdf') || lowerTitle.endsWith('.pdf')) {
     return 'PDF';
   }
 
-  if (lowerName.endsWith('.ppt') || lowerName.endsWith('.pptx')) {
+  if (lowerTitle.endsWith('.ppt') || lowerTitle.endsWith('.pptx')) {
     return 'Lecture slides';
   }
 
-  if (lowerName.endsWith('.doc') || lowerName.endsWith('.docx')) {
+  if (lowerTitle.endsWith('.doc') || lowerTitle.endsWith('.docx')) {
     return 'Document';
+  }
+
+  if (source.mimeType.includes('text')) {
+    return 'Text notes';
   }
 
   return 'Study material';
 }
 
-function assetEstimate(index: number) {
-  return {
-    notes: 2 + index,
-    flashcards: 10 + index * 4,
-    quizzes: 1 + (index % 3),
-  };
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Recently';
+  }
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-const initialSources: LibrarySource[] = sources.map((source, index) => ({
-  id: `seed-${index}`,
-  ...source,
-}));
+function stageLabel(source: SourceRecord) {
+  if (source.status === 'ready') return 'Ready for review';
+  if (source.status === 'needs_ocr') return 'Needs OCR';
+  if (source.status === 'failed') return 'Failed';
+
+  const labels: Record<SourceRecord['stage'], string> = {
+    chunk: 'Chunking text',
+    complete: 'Ready for review',
+    embed: 'Creating embeddings',
+    extract_text: 'Extracting text',
+    failed: 'Failed',
+    generate: 'Generating study pack',
+    metadata: 'Preparing upload',
+    ocr: 'Waiting for OCR',
+    upload: 'Uploading file',
+  };
+
+  return labels[source.stage];
+}
+
+function countAssets(source: SourceRecord, assets: GeneratedAssetRecord[]) {
+  const asset = assets.find((item) => item.sourceId === source.id);
+
+  return {
+    flashcards: asset?.content.flashcards.length ?? 0,
+    notes: asset?.content.detailed_notes.length ?? 0,
+    quizzes: asset?.content.quiz.length ?? 0,
+  };
+}
 
 export default function LibraryScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const [librarySources, setLibrarySources] = useState<LibrarySource[]>(initialSources);
-  const [uploadMessage, setUploadMessage] = useState('Ready for PDF, slides, docs, or notes.');
-  const parserTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const generatedTotals = useMemo(
-    () =>
-      librarySources.reduce(
-        (totals, source) => ({
-          notes: totals.notes + source.assets.notes,
-          flashcards: totals.flashcards + source.assets.flashcards,
-          quizzes: totals.quizzes + source.assets.quizzes,
-        }),
-        { notes: 0, flashcards: 0, quizzes: 0 }
-      ),
-    [librarySources]
+  const [sources, setSources] = useState<SourceRecord[]>([]);
+  const [assets, setAssets] = useState<GeneratedAssetRecord[]>([]);
+  const [isBusy, setIsBusy] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState(
+    hasSupabaseConfig()
+      ? 'Ready for PDF, slides, docs, or notes.'
+      : 'Add Supabase public env vars to enable real uploads.'
   );
 
-  const parsingCount = librarySources.filter((source) => source.progress < 100).length;
+  const loadLocal = useCallback(async () => {
+    const [cachedSources, cachedAssets] = await Promise.all([
+      listCachedSources(),
+      listCachedAssets(),
+    ]);
 
-  useEffect(
-    () => () => {
-      parserTimers.current.forEach(clearTimeout);
-    },
-    []
-  );
+    setSources(cachedSources.length > 0 ? cachedSources : getFixtureSources());
+    setAssets(cachedAssets.length > 0 ? cachedAssets : getFixtureAssets());
+  }, []);
 
-  function scheduleParsing(ids: string[]) {
-    const midpointTimer = setTimeout(() => {
-      setLibrarySources((current) =>
-        current.map((source) =>
-          ids.includes(source.id)
-            ? { ...source, progress: 68, status: 'Generating flashcards' }
-            : source
-        )
-      );
-    }, 800);
+  const refresh = useCallback(async () => {
+    await loadLocal();
 
-    const completeTimer = setTimeout(() => {
-      setLibrarySources((current) =>
-        current.map((source) =>
-          ids.includes(source.id)
-            ? { ...source, progress: 100, status: 'Ready for review' }
-            : source
-        )
-      );
-      setUploadMessage('Parsing complete. New notes, flashcards, and quizzes are ready.');
-    }, 1800);
-
-    parserTimers.current.push(midpointTimer, completeTimer);
-  }
-
-  function addSources(nextSources: LibrarySource[]) {
-    const ids = nextSources.map((source) => source.id);
-
-    setLibrarySources((current) => [...nextSources, ...current]);
-    setUploadMessage(`${nextSources.length} source${nextSources.length === 1 ? '' : 's'} queued.`);
-    scheduleParsing(ids);
-  }
-
-  function chooseFiles() {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') {
-      addSampleNotes();
+    if (!hasSupabaseConfig()) {
       return;
     }
 
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.pdf,.ppt,.pptx,.doc,.docx,.txt,text/plain,application/pdf';
-    input.onchange = () => {
-      const selectedFiles = Array.from(input.files ?? []);
+    try {
+      const nextState = await refreshParsingState();
+      setSources(nextState.sources);
+      setAssets(nextState.assets);
+      setUploadMessage('Library refreshed from Supabase.');
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Could not refresh parsing state.');
+    }
+  }, [loadLocal]);
 
-      if (selectedFiles.length === 0) {
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 8000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  const generatedTotals = useMemo(
+    () =>
+      assets.reduce(
+        (totals, asset) => ({
+          notes: totals.notes + asset.content.detailed_notes.length,
+          flashcards: totals.flashcards + asset.content.flashcards.length,
+          quizzes: totals.quizzes + asset.content.quiz.length,
+        }),
+        { notes: 0, flashcards: 0, quizzes: 0 }
+      ),
+    [assets]
+  );
+
+  const parsingCount = sources.filter(
+    (source) => source.status === 'queued' || source.status === 'uploading' || source.status === 'processing'
+  ).length;
+
+  async function chooseFiles() {
+    if (!hasSupabaseConfig()) {
+      setUploadMessage('Add Supabase URL and anon key first, then restart the Expo server.');
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      const files = await pickStudyFiles();
+      if (files.length === 0) {
+        setUploadMessage('No files selected.');
         return;
       }
 
-      addSources(
-        selectedFiles.map((file, index) => ({
-          id: `file-${file.name}-${Date.now()}-${index}`,
-          title: file.name,
-          type: inferType(file.name, file.type),
-          status: 'Parsing document',
-          progress: 28,
-          size: formatSize(file.size),
-          importedAt: 'Just now',
-          course: 'Unsorted',
-          assets: assetEstimate(index),
-        }))
-      );
-    };
-    input.click();
+      const results = await uploadAndProcessFiles(files);
+      setSources((current) => [...results.map((result) => result.source), ...current]);
+      setUploadMessage(`${files.length} source${files.length === 1 ? '' : 's'} uploaded and queued.`);
+      await refresh();
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Upload failed.');
+    } finally {
+      setIsBusy(false);
+    }
   }
 
-  function addSampleNotes() {
-    addSources([
-      {
-        id: `notes-${Date.now()}`,
-        title: 'Pasted study notes',
-        type: 'Notes',
-        status: 'Parsing notes',
-        progress: 36,
-        size: '2 KB',
-        importedAt: 'Just now',
-        course: 'Unsorted',
-        assets: { notes: 1, flashcards: 8, quizzes: 1 },
-      },
-    ]);
+  async function retrySource(sourceId: string) {
+    if (!hasSupabaseConfig()) {
+      setUploadMessage('Add Supabase URL and anon key first, then restart the Expo server.');
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await startProcessing(sourceId);
+      setUploadMessage('Processing restarted for that source.');
+      await refresh();
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Could not restart processing.');
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   return (
     <StudyScreen
       eyebrow="Source library"
       title="Turn materials into study assets"
-      subtitle="Keep textbooks, lecture slides, PDFs, and notes organized by course and generation status.">
+      subtitle="Upload textbooks, lecture slides, PDFs, and notes, then track extraction, embeddings, and AI generation.">
       <View style={styles.grid}>
         <StudyCard style={[styles.uploadCard, { backgroundColor: theme.brandMint }]}>
           <ThemedText type="caption">Document upload</ThemedText>
           <ThemedText type="subtitle">Add a chapter, deck, or packet</ThemedText>
           <ThemedText type="small">
-            Imported sources enter a parsing queue for summaries, notes, flashcards, and quizzes.
+            Selected files are uploaded to Supabase Storage, parsed server-side, chunked, embedded,
+            and turned into summaries, notes, flashcards, and quizzes.
           </ThemedText>
           <ThemedView style={[styles.uploadDropzone, { borderColor: theme.primary }]}>
-            <ThemedText type="sectionTitle">Drop zone model</ThemedText>
+            <ThemedText type="sectionTitle">Real parsing pipeline</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {uploadMessage}
             </ThemedText>
           </ThemedView>
           <View style={styles.buttonRow}>
-            <ActionButton label="Choose files" onPress={chooseFiles} />
-            <ActionButton label="Paste notes" variant="secondary" onPress={addSampleNotes} />
+            <ActionButton
+              label={isBusy ? 'Uploading...' : 'Choose files'}
+              onPress={chooseFiles}
+            />
+            <ActionButton label="Refresh" variant="secondary" onPress={refresh} />
             <ActionButton
               label="Open assets"
               variant="secondary"
@@ -236,40 +253,51 @@ export default function LibraryScreen() {
       </View>
 
       <StudyCard>
-        <SectionHeader title="Parsing Queue" detail="Source metadata and generated study output." />
-        {librarySources.map((source) => (
-          <ThemedView key={source.id} type="backgroundElement" style={styles.sourceRow}>
-            <View style={styles.sourceCopy}>
-              <ThemedText type="smallBold">{source.title}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {source.type} - {source.course} - {source.size} - {source.importedAt}
-              </ThemedText>
-              <ThemedView style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width: `${source.progress}%`,
-                      backgroundColor:
-                        source.progress === 100 ? theme.success : theme.brandCoral,
-                    },
-                  ]}
-                />
-              </ThemedView>
-            </View>
-            <View style={styles.sourceMeta}>
-              <ThemedView
-                type={source.progress === 100 ? 'backgroundSelected' : 'cardStrong'}
-                style={styles.statusPill}>
-                <ThemedText type="smallBold">{source.status}</ThemedText>
-              </ThemedView>
-              <ThemedText type="small" themeColor="textSecondary">
-                {source.assets.notes} notes / {source.assets.flashcards} cards /{' '}
-                {source.assets.quizzes} quizzes
-              </ThemedText>
-            </View>
-          </ThemedView>
-        ))}
+        <SectionHeader title="Parsing Queue" detail="Source metadata, progress, and generated output." />
+        {sources.map((source) => {
+          const sourceAssets = countAssets(source, assets);
+
+          return (
+            <ThemedView key={source.id} type="backgroundElement" style={styles.sourceRow}>
+              <View style={styles.sourceCopy}>
+                <ThemedText type="smallBold">{source.title}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {inferType(source)} - {formatSize(source.size)} - {formatDate(source.createdAt)}
+                </ThemedText>
+                <ThemedView style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${source.progress}%`,
+                        backgroundColor:
+                          source.status === 'ready' ? theme.success : theme.brandCoral,
+                      },
+                    ]}
+                  />
+                </ThemedView>
+              </View>
+              <View style={styles.sourceMeta}>
+                <ThemedView
+                  type={source.status === 'ready' ? 'backgroundSelected' : 'cardStrong'}
+                  style={styles.statusPill}>
+                  <ThemedText type="smallBold">{stageLabel(source)}</ThemedText>
+                </ThemedView>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {sourceAssets.notes} notes / {sourceAssets.flashcards} cards /{' '}
+                  {sourceAssets.quizzes} quizzes
+                </ThemedText>
+                {(source.status === 'failed' || source.status === 'needs_ocr') && (
+                  <ActionButton
+                    label={source.status === 'needs_ocr' ? 'Retry OCR' : 'Retry'}
+                    variant="secondary"
+                    onPress={() => retrySource(source.id)}
+                  />
+                )}
+              </View>
+            </ThemedView>
+          );
+        })}
       </StudyCard>
     </StudyScreen>
   );
