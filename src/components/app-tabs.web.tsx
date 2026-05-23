@@ -32,6 +32,9 @@ export default function AppTabs() {
           <TabTrigger name="library" href={'/library' as Href} asChild>
             <TabButton compact={compact}>{compact ? 'Lib' : 'Library'}</TabButton>
           </TabTrigger>
+          <TabTrigger name="assets" href={'/assets' as Href} asChild>
+            <TabButton compact={compact}>{compact ? 'AI' : 'Assets'}</TabButton>
+          </TabTrigger>
           <TabTrigger name="study" href={'/study' as Href} asChild>
             <TabButton compact={compact}>Study</TabButton>
           </TabTrigger>

@@ -32,6 +32,14 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="assets">
+        <NativeTabs.Trigger.Label>Assets</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'sparkles.rectangle.stack', selected: 'sparkles.rectangle.stack.fill' }}
+          md="auto_awesome"
+        />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="study">
         <NativeTabs.Trigger.Label>Study</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'timer', selected: 'timer' }} md="timer" />

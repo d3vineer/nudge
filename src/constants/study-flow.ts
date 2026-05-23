@@ -78,6 +78,111 @@ export const retentionInsights = [
   'History recall is strongest after interleaving primary-source prompts.',
 ] as const;
 
+export const generatedMaterials = [
+  {
+    id: 'cognitive-psychology-ch4',
+    title: 'Cognitive Psychology, Ch. 4',
+    course: 'Psychology 210',
+    sourceType: 'Textbook PDF',
+    readiness: 'Ready',
+    summary:
+      'Working memory depends on attention, chunking, and rehearsal. The chapter connects cognitive load to long-term encoding and explains why retrieval practice improves later recall.',
+    notes: [
+      'Working memory is limited, but structured chunks increase usable capacity.',
+      'Encoding improves when learners connect new facts to existing schemas.',
+      'Retrieval practice strengthens access paths more reliably than rereading.',
+    ],
+    flashcards: [
+      {
+        front: 'What is chunking?',
+        back: 'Grouping separate pieces of information into meaningful units to reduce working-memory load.',
+      },
+      {
+        front: 'Why does retrieval practice outperform rereading?',
+        back: 'It forces active reconstruction, strengthening recall routes and exposing gaps.',
+      },
+      {
+        front: 'What raises cognitive load during study?',
+        back: 'Too many novel elements, weak prior schemas, and distractions competing for attention.',
+      },
+    ],
+    quiz: [
+      {
+        question: 'Which action best supports durable encoding?',
+        choices: ['Highlighting every paragraph', 'Testing recall after reading', 'Reading faster'],
+        answer: 'Testing recall after reading',
+      },
+      {
+        question: 'Chunking mainly helps by...',
+        choices: ['Reducing working-memory load', 'Removing forgetting', 'Replacing sleep'],
+        answer: 'Reducing working-memory load',
+      },
+    ],
+  },
+  {
+    id: 'biology-lecture-08',
+    title: 'Biology lecture deck 08',
+    course: 'Biology 204',
+    sourceType: 'Slides',
+    readiness: 'Review due',
+    summary:
+      'The lecture explains synaptic signaling, neurotransmitter release, receptor binding, and plasticity. It emphasizes how repeated activation changes connection strength.',
+    notes: [
+      'Action potentials trigger calcium influx at the presynaptic terminal.',
+      'Neurotransmitters cross the synaptic cleft and bind receptors on the next cell.',
+      'Long-term potentiation supports learning through strengthened synaptic response.',
+    ],
+    flashcards: [
+      {
+        front: 'What triggers neurotransmitter release?',
+        back: 'Calcium influx after an action potential reaches the presynaptic terminal.',
+      },
+      {
+        front: 'What does long-term potentiation describe?',
+        back: 'A persistent strengthening of synaptic response after repeated activation.',
+      },
+    ],
+    quiz: [
+      {
+        question: 'Where do neurotransmitters bind after release?',
+        choices: ['Myelin sheath', 'Postsynaptic receptors', 'Cell nucleus'],
+        answer: 'Postsynaptic receptors',
+      },
+    ],
+  },
+  {
+    id: 'calculus-review-packet',
+    title: 'Calculus review packet',
+    course: 'Calculus I',
+    sourceType: 'PDF',
+    readiness: 'Draft',
+    summary:
+      'The packet reviews limits, derivative rules, and proof patterns. The highest-yield section is translating graph behavior into derivative statements.',
+    notes: [
+      'A limit describes behavior as input approaches a value, not necessarily the function value.',
+      'The chain rule handles nested functions by multiplying outer and inner derivatives.',
+      'Derivative sign charts connect algebraic results to increasing/decreasing intervals.',
+    ],
+    flashcards: [
+      {
+        front: 'What does the chain rule differentiate?',
+        back: 'Compositions of functions, by multiplying the derivative of the outside by the derivative of the inside.',
+      },
+      {
+        front: 'What does a positive derivative mean?',
+        back: 'The function is increasing over that interval.',
+      },
+    ],
+    quiz: [
+      {
+        question: 'A derivative sign chart is mainly used to identify...',
+        choices: ['Function intervals', 'Citation formats', 'Molecular bonds'],
+        answer: 'Function intervals',
+      },
+    ],
+  },
+] as const;
+
 export const mastery = [
   { label: 'Biology', value: 78, color: '#ff4d8b' },
   { label: 'Calculus', value: 64, color: '#b8a4ed' },

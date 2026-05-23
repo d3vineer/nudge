@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Platform, StyleSheet, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
@@ -70,6 +71,7 @@ const initialSources: LibrarySource[] = sources.map((source, index) => ({
 
 export default function LibraryScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const [librarySources, setLibrarySources] = useState<LibrarySource[]>(initialSources);
   const [uploadMessage, setUploadMessage] = useState('Ready for PDF, slides, docs, or notes.');
   const parserTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -200,6 +202,11 @@ export default function LibraryScreen() {
           <View style={styles.buttonRow}>
             <ActionButton label="Choose files" onPress={chooseFiles} />
             <ActionButton label="Paste notes" variant="secondary" onPress={addSampleNotes} />
+            <ActionButton
+              label="Open assets"
+              variant="secondary"
+              onPress={() => router.push('/assets')}
+            />
           </View>
         </StudyCard>
 
