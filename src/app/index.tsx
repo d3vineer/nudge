@@ -1,15 +1,25 @@
+import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { dailyQueue, weakTopics } from '@/constants/study-flow';
+import {
+  dailyQueue,
+  retentionInsights,
+  sources,
+  studyBlocks,
+  weakTopics,
+} from '@/constants/study-flow';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function DashboardScreen() {
   const theme = useTheme();
+  const router = useRouter();
+  const totalDueCards = dailyQueue.reduce((sum, item) => sum + Number.parseInt(item.due, 10), 0);
+  const readySources = sources.filter((source) => source.progress === 100).length;
 
   return (
     <StudyScreen
@@ -28,21 +38,30 @@ export default function DashboardScreen() {
             Lower than last Thursday after two strong reviews.
           </ThemedText>
           <View style={styles.buttonRow}>
-            <ActionButton label="Start queue" />
-            <ActionButton label="Upload source" variant="secondary" />
+            <ActionButton label="Start queue" onPress={() => router.push('/reviews')} />
+            <ActionButton
+              label="Upload source"
+              variant="secondary"
+              onPress={() => router.push('/library')}
+            />
           </View>
         </StudyCard>
 
         <View style={styles.metricGrid}>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandLavender }]}>
             <ThemedText type="caption">Due now</ThemedText>
-            <ThemedText type="metric">26</ThemedText>
+            <ThemedText type="metric">{totalDueCards}</ThemedText>
             <ThemedText type="small">cards across 3 courses</ThemedText>
           </StudyCard>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandPeach }]}>
             <ThemedText type="caption">Deep work</ThemedText>
             <ThemedText type="metric">50</ThemedText>
             <ThemedText type="small">minute session suggested</ThemedText>
+          </StudyCard>
+          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandMint }]}>
+            <ThemedText type="caption">Sources ready</ThemedText>
+            <ThemedText type="metric">{readySources}/{sources.length}</ThemedText>
+            <ThemedText type="small">parsed into study assets</ThemedText>
           </StudyCard>
         </View>
       </View>
@@ -61,10 +80,47 @@ export default function DashboardScreen() {
               <View style={styles.queueCopy}>
                 <ThemedText type="smallBold">{item.title}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {item.course}
+                  {item.course} - {item.difficulty} difficulty
                 </ThemedText>
               </View>
-              <ThemedText type="smallBold">{item.due}</ThemedText>
+              <View style={styles.queueMeta}>
+                <ThemedText type="smallBold">{item.due}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {item.dueTime}
+                </ThemedText>
+              </View>
+            </ThemedView>
+          ))}
+        </StudyCard>
+
+        <StudyCard style={styles.column}>
+          <SectionHeader title="Study Blocks" detail="A suggested rhythm for today." />
+          {studyBlocks.map((block) => (
+            <ThemedView key={block.label} type="backgroundElement" style={styles.blockRow}>
+              <ThemedText type="smallBold">{block.time}</ThemedText>
+              <View style={styles.queueCopy}>
+                <ThemedText type="smallBold">{block.label}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {block.focus}
+                </ThemedText>
+              </View>
+              <ThemedView type="backgroundSelected" style={styles.statusPill}>
+                <ThemedText type="smallBold">{block.state}</ThemedText>
+              </ThemedView>
+            </ThemedView>
+          ))}
+        </StudyCard>
+      </View>
+
+      <View style={styles.grid}>
+        <StudyCard style={styles.column}>
+          <SectionHeader title="Retention Insights" detail="What the optimizer is noticing." />
+          {retentionInsights.map((insight) => (
+            <ThemedView key={insight} style={styles.insightRow}>
+              <View style={[styles.accentDot, { backgroundColor: theme.brandCoral }]} />
+              <ThemedText type="smallBold" style={styles.insightText}>
+                {insight}
+              </ThemedText>
             </ThemedView>
           ))}
         </StudyCard>
@@ -131,6 +187,33 @@ const styles = StyleSheet.create({
   queueCopy: {
     flex: 1,
     gap: Spacing.one,
+  },
+  queueMeta: {
+    alignItems: 'flex-end',
+    gap: Spacing.one,
+  },
+  blockRow: {
+    borderRadius: 12,
+    borderCurve: 'continuous',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    padding: Spacing.three,
+  },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  insightRow: {
+    backgroundColor: 'transparent',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  insightText: {
+    flex: 1,
   },
   topicWrap: {
     flexDirection: 'row',
