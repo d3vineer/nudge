@@ -13,22 +13,22 @@ export default function ReviewsScreen() {
 
   return (
     <StudyScreen
-      eyebrow="Spaced repetition"
-      title="Review before recall fades"
-      subtitle="The queue prioritizes cards with rising forgetting probability and high exam value.">
+      eyebrow="Review"
+      title="Keep it fresh"
+      subtitle="Review the cards that need attention today.">
       <StudyCard style={[styles.forecast, { backgroundColor: theme.brandOchre }]}>
         <View>
-          <ThemedText type="caption">Retention forecast</ThemedText>
+          <ThemedText type="caption">Recall</ThemedText>
           <ThemedText type="metric">76%</ThemedText>
         </View>
         <ThemedText type="small">
-          Complete the current queue to push tomorrow’s estimated retention above 82%.
+          Finish today’s cards to keep tomorrow easier.
         </ThemedText>
         <ActionButton label="Review now" />
       </StudyCard>
 
       <StudyCard>
-        <SectionHeader title="Due Cards" detail="Sorted by FSRS-style retrievability." />
+        <SectionHeader title="Due Cards" detail="Start at the top." />
         {dailyQueue.map((item) => (
           <ThemedView key={item.title} type="backgroundElement" style={styles.reviewRow}>
             <View style={styles.reviewCopy}>
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.three,
-    borderRadius: 12,
+    borderRadius: 22,
     borderCurve: 'continuous',
     padding: Spacing.three,
   },

@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, type PressableProps, type ViewProps } from 'react-native';
+import { Platform, Pressable, StyleSheet, type PressableProps, type ViewProps } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -11,15 +11,30 @@ type CardProps = ViewProps & {
 
 export function StudyCard({ style, tone = 'card', ...props }: CardProps) {
   const theme = useTheme();
+  const isDark = theme.background === '#07111F';
+  const glassStyle = Platform.select({
+    web: {
+      backdropFilter: 'blur(22px)',
+      backgroundImage:
+        tone === 'darkSurface'
+          ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.82))'
+          : isDark
+            ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.82), rgba(30, 41, 59, 0.58))'
+            : 'linear-gradient(145deg, rgba(255,255,255,0.88), rgba(240,247,255,0.68))',
+    },
+  });
 
   return (
     <ThemedView
       type={tone}
       style={[
         styles.card,
+        glassStyle,
         {
           borderColor: theme.hairline,
-          boxShadow: '0 8px 24px rgba(10, 10, 10, 0.07)',
+          boxShadow: isDark
+            ? '0 24px 70px rgba(0, 0, 0, 0.28)'
+            : '0 24px 70px rgba(37, 99, 235, 0.10)',
         },
         style,
       ]}
@@ -72,7 +87,7 @@ export function SectionHeader({ title, detail }: { title: string; detail?: strin
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
     padding: Spacing.four,
     gap: Spacing.three,
@@ -81,7 +96,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.twoHalf,
-    borderRadius: 12,
+    borderRadius: 999,
     borderCurve: 'continuous',
     borderWidth: 1,
     alignItems: 'center',
@@ -89,6 +104,6 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     backgroundColor: 'transparent',
-    gap: Spacing.one,
+    gap: Spacing.half,
   },
 });

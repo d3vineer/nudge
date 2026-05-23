@@ -53,11 +53,14 @@ function sourceType(source?: SourceRecord) {
 
 export default function AssetsScreen() {
   const theme = useTheme();
+  const isDark = theme.background === '#07111F';
   const [assets, setAssets] = useState<GeneratedAssetRecord[]>([]);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string>('');
   const [assetView, setAssetView] = useState<AssetView>('summary');
-  const [statusText, setStatusText] = useState('Loading generated study packs...');
+  const [statusText, setStatusText] = useState('Loading study tools...');
+  const [revealedCards, setRevealedCards] = useState<Record<string, boolean>>({});
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
 
   const loadAssets = useCallback(async () => {
     const [cachedSources, cachedAssets] = await Promise.all([
@@ -72,7 +75,7 @@ export default function AssetsScreen() {
     setSelectedAssetId((current) => current || localAssets[0]?.id || '');
     setStatusText(
       cachedAssets.length > 0
-        ? 'Showing cached generated assets.'
+        ? 'Showing saved study tools.'
         : 'Showing demo assets until real uploads finish.'
     );
 
@@ -86,9 +89,9 @@ export default function AssetsScreen() {
       setAssets(nextAssets);
       setSources(remoteState.sources.length > 0 ? remoteState.sources : localSources);
       setSelectedAssetId((current) => current || nextAssets[0]?.id || '');
-      setStatusText('Synced generated assets from Supabase.');
+      setStatusText('Updated from Supabase.');
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : 'Could not refresh generated assets.');
+      setStatusText(error instanceof Error ? error.message : 'Could not update study tools.');
     }
   }, []);
 
@@ -102,14 +105,28 @@ export default function AssetsScreen() {
   );
   const selectedSource = sources.find((source) => source.id === selectedAsset?.sourceId);
 
+  function toggleCard(cardKey: string) {
+    setRevealedCards((current) => ({
+      ...current,
+      [cardKey]: !current[cardKey],
+    }));
+  }
+
+  function selectQuizAnswer(questionKey: string, choice: string) {
+    setQuizAnswers((current) => ({
+      ...current,
+      [questionKey]: choice,
+    }));
+  }
+
   return (
     <StudyScreen
-      eyebrow="AI-generated study assets"
-      title="Summaries, notes, cards, and quizzes"
-      subtitle="Generated outputs now come from uploaded source content, with local cache used first for fast reloads.">
+      eyebrow="Study tools"
+      title="Study from your uploads"
+      subtitle="Summaries, notes, flashcards, and quizzes made from your materials.">
       <View style={styles.grid}>
         <StudyCard style={styles.sourcePanel}>
-          <SectionHeader title="Generated Sources" detail={statusText} />
+          <SectionHeader title="Materials" detail={statusText} />
           <ActionButton label="Refresh" variant="secondary" onPress={loadAssets} />
           {assets.map((asset) => {
             const source = sources.find((item) => item.id === asset.sourceId);
@@ -159,7 +176,7 @@ export default function AssetsScreen() {
                   <ThemedText type="sectionTitle">{selectedAsset.title}</ThemedText>
                 </View>
                 <ThemedView type="backgroundElement" style={styles.modelPill}>
-                  <ThemedText type="smallBold">AI study pack</ThemedText>
+                  <ThemedText type="smallBold">Study pack</ThemedText>
                 </ThemedView>
               </View>
 
@@ -187,8 +204,8 @@ export default function AssetsScreen() {
               </View>
 
               {assetView === 'summary' && (
-                <ThemedView style={[styles.summaryCard, { backgroundColor: theme.brandLavender }]}>
-                  <ThemedText type="caption">Source Summary</ThemedText>
+                <ThemedView style={[styles.summaryCard, styles.summaryGlow, isDark && styles.summaryGlowDark]}>
+                  <ThemedText type="caption">Summary</ThemedText>
                   <ThemedText type="default">{selectedAsset.content.summary}</ThemedText>
                 </ThemedView>
               )}
@@ -210,51 +227,94 @@ export default function AssetsScreen() {
 
               {assetView === 'flashcards' && (
                 <View style={styles.cardGrid}>
-                  {selectedAsset.content.flashcards.map((card, index) => (
-                    <ThemedView key={`${card.front}-${index}`} type="backgroundElement" style={styles.flashcard}>
-                      <ThemedText type="caption" themeColor="textSecondary">
-                        Prompt
-                      </ThemedText>
-                      <ThemedText type="sectionTitle">{card.front}</ThemedText>
-                      <ThemedView type="backgroundSelected" style={styles.answerBox}>
-                        <ThemedText type="smallBold">{card.back}</ThemedText>
-                      </ThemedView>
-                    </ThemedView>
-                  ))}
+                  {selectedAsset.content.flashcards.map((card, index) => {
+                    const cardKey = `${selectedAsset.id}-card-${index}`;
+                    const isRevealed = Boolean(revealedCards[cardKey]);
+
+                    return (
+                      <Pressable
+                        key={`${card.front}-${index}`}
+                        onPress={() => toggleCard(cardKey)}
+                        style={({ pressed }) => [styles.flashcardPressable, pressed && styles.pressed]}>
+                        <ThemedView type="backgroundElement" style={styles.flashcard}>
+                          <ThemedText type="caption" themeColor="textSecondary">
+                            {isRevealed ? 'Answer' : 'Prompt'}
+                          </ThemedText>
+                          <ThemedText type="sectionTitle">
+                            {isRevealed ? card.back : card.front}
+                          </ThemedText>
+                          <ThemedView type="backgroundSelected" style={styles.answerBox}>
+                            <ThemedText type="smallBold">
+                              {isRevealed ? 'Tap to hide answer' : 'Tap to reveal answer'}
+                            </ThemedText>
+                          </ThemedView>
+                        </ThemedView>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               )}
 
               {assetView === 'quiz' && (
                 <View style={styles.stack}>
-                  {selectedAsset.content.quiz.map((question, index) => (
-                    <ThemedView key={`${question.question}-${index}`} type="backgroundElement" style={styles.quizCard}>
-                      <ThemedText type="caption" themeColor="textSecondary">
-                        Question {index + 1}
-                      </ThemedText>
-                      <ThemedText type="sectionTitle">{question.question}</ThemedText>
-                      <View style={styles.choiceList}>
-                        {question.choices.map((choice) => (
+                  {selectedAsset.content.quiz.map((question, index) => {
+                    const questionKey = `${selectedAsset.id}-quiz-${index}`;
+                    const selectedChoice = quizAnswers[questionKey];
+                    const isAnswered = Boolean(selectedChoice);
+                    const isCorrect = selectedChoice === question.answer;
+
+                    return (
+                      <ThemedView key={`${question.question}-${index}`} type="backgroundElement" style={styles.quizCard}>
+                        <ThemedText type="caption" themeColor="textSecondary">
+                          Question {index + 1}
+                        </ThemedText>
+                        <ThemedText type="sectionTitle">{question.question}</ThemedText>
+                        <View style={styles.choiceList}>
+                          {question.choices.map((choice) => {
+                            const isSelected = selectedChoice === choice;
+
+                            return (
+                              <Pressable
+                                key={choice}
+                                onPress={() => selectQuizAnswer(questionKey, choice)}
+                                style={({ pressed }) => pressed && styles.pressed}>
+                                <ThemedView
+                                  type={isSelected ? 'backgroundSelected' : 'card'}
+                                  style={[
+                                    styles.choicePill,
+                                    isSelected && {
+                                      borderColor: isCorrect ? theme.success : theme.error,
+                                    },
+                                  ]}>
+                                  <ThemedText type="smallBold">{choice}</ThemedText>
+                                </ThemedView>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        {isAnswered && (
                           <ThemedView
-                            key={choice}
-                            type={choice === question.answer ? 'backgroundSelected' : 'card'}
+                            type="backgroundSelected"
                             style={[
-                              styles.choicePill,
-                              choice === question.answer && { borderColor: theme.success },
+                              styles.resultPill,
+                              { borderColor: isCorrect ? theme.success : theme.error },
                             ]}>
-                            <ThemedText type="smallBold">{choice}</ThemedText>
+                            <ThemedText type="smallBold">
+                              {isCorrect ? 'Correct' : 'Incorrect'}
+                            </ThemedText>
                           </ThemedView>
-                        ))}
-                      </View>
-                    </ThemedView>
-                  ))}
+                        )}
+                      </ThemedView>
+                    );
+                  })}
                 </View>
               )}
             </>
           ) : (
             <ThemedView type="backgroundElement" style={styles.emptyState}>
-              <ThemedText type="sectionTitle">No generated assets yet</ThemedText>
+              <ThemedText type="sectionTitle">No study tools yet</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Upload a source in Library, then refresh this screen after parsing completes.
+                Upload a file in Library, then refresh after it finishes.
               </ThemedText>
             </ThemedView>
           )}
@@ -283,7 +343,7 @@ const styles = StyleSheet.create({
   },
   sourceButton: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 24,
     borderCurve: 'continuous',
     flexDirection: 'row',
     alignItems: 'center',
@@ -323,16 +383,23 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   summaryCard: {
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
     gap: Spacing.two,
     padding: Spacing.four,
+  },
+  summaryGlow: {
+    backgroundColor: 'rgba(184, 164, 237, 0.22)',
+    boxShadow: '0 22px 60px rgba(184, 164, 237, 0.18)',
+  },
+  summaryGlowDark: {
+    backgroundColor: 'rgba(184, 164, 237, 0.14)',
   },
   stack: {
     gap: Spacing.three,
   },
   noteRow: {
-    borderRadius: 14,
+    borderRadius: 22,
     borderCurve: 'continuous',
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -355,22 +422,24 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   flashcard: {
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
-    flexGrow: 1,
-    flexBasis: 240,
     gap: Spacing.three,
     minHeight: 220,
     padding: Spacing.three,
   },
+  flashcardPressable: {
+    flexGrow: 1,
+    flexBasis: 240,
+  },
   answerBox: {
-    borderRadius: 12,
+    borderRadius: 20,
     borderCurve: 'continuous',
     marginTop: 'auto',
     padding: Spacing.three,
   },
   quizCard: {
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
     gap: Spacing.three,
     padding: Spacing.three,
@@ -381,12 +450,20 @@ const styles = StyleSheet.create({
   choicePill: {
     borderWidth: 1,
     borderColor: 'transparent',
-    borderRadius: 12,
+    borderRadius: 18,
     borderCurve: 'continuous',
     padding: Spacing.three,
   },
+  resultPill: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    borderCurve: 'continuous',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
   emptyState: {
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
     gap: Spacing.two,
     padding: Spacing.four,

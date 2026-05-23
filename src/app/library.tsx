@@ -67,7 +67,7 @@ function stageLabel(source: SourceRecord) {
   const labels: Record<SourceRecord['stage'], string> = {
     chunk: 'Chunking text',
     complete: 'Ready for review',
-    embed: 'Creating embeddings',
+    embed: 'Reading key ideas',
     extract_text: 'Extracting text',
     failed: 'Failed',
     generate: 'Generating study pack',
@@ -114,8 +114,8 @@ export default function LibraryScreen() {
   const [isBusy, setIsBusy] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(
     hasSupabaseConfig()
-      ? 'Ready for PDF, slides, docs, or notes.'
-      : 'Add Supabase public env vars to enable real uploads.'
+      ? 'Ready for PDFs, slides, docs, or notes.'
+      : 'Connect Supabase to upload files.'
   );
 
   const loadLocal = useCallback(async () => {
@@ -139,7 +139,7 @@ export default function LibraryScreen() {
       const nextState = await refreshParsingState();
       setSources((current) => mergeRemoteWithLocalDiagnostics(nextState.sources, current));
       setAssets(nextState.assets);
-      setUploadMessage('Library refreshed from Supabase.');
+      setUploadMessage('Library updated.');
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : 'Could not refresh parsing state.');
     }
@@ -170,7 +170,7 @@ export default function LibraryScreen() {
 
   async function chooseFiles() {
     if (!hasSupabaseConfig()) {
-      setUploadMessage('Add Supabase URL and anon key first, then restart the Expo server.');
+      setUploadMessage('Connect Supabase first, then restart the app.');
       return;
     }
 
@@ -202,7 +202,7 @@ export default function LibraryScreen() {
 
   async function retrySource(sourceId: string) {
     if (!hasSupabaseConfig()) {
-      setUploadMessage('Add Supabase URL and anon key first, then restart the Expo server.');
+      setUploadMessage('Connect Supabase first, then restart the app.');
       return;
     }
 
@@ -220,31 +220,30 @@ export default function LibraryScreen() {
 
   return (
     <StudyScreen
-      eyebrow="Source library"
-      title="Turn materials into study assets"
-      subtitle="Upload textbooks, lecture slides, PDFs, and notes, then track extraction, embeddings, and AI generation.">
+      eyebrow="Library"
+      title="Add your study materials"
+      subtitle="Upload notes, PDFs, slides, or docs. Nudge turns them into study tools.">
       <View style={styles.grid}>
         <StudyCard style={[styles.uploadCard, { backgroundColor: theme.brandMint }]}>
-          <ThemedText type="caption">Document upload</ThemedText>
-          <ThemedText type="subtitle">Add a chapter, deck, or packet</ThemedText>
+          <ThemedText type="caption">Upload</ThemedText>
+          <ThemedText type="subtitle">Choose a file</ThemedText>
           <ThemedText type="small">
-            Selected files are uploaded to Supabase Storage, parsed server-side, chunked, embedded,
-            and turned into summaries, notes, flashcards, and quizzes.
+            We’ll read it and make summaries, notes, flashcards, and quizzes.
           </ThemedText>
           <ThemedView style={[styles.uploadDropzone, { borderColor: theme.primary }]}>
-            <ThemedText type="sectionTitle">Real parsing pipeline</ThemedText>
+            <ThemedText type="sectionTitle">Ready when you are</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {uploadMessage}
             </ThemedText>
           </ThemedView>
           <View style={styles.buttonRow}>
             <ActionButton
-              label={isBusy ? 'Uploading...' : 'Choose files'}
+              label={isBusy ? 'Uploading...' : 'Choose file'}
               onPress={chooseFiles}
             />
             <ActionButton label="Refresh" variant="secondary" onPress={refresh} />
             <ActionButton
-              label="Open assets"
+              label="View study tools"
               variant="secondary"
               onPress={() => router.push('/assets')}
             />
@@ -252,7 +251,7 @@ export default function LibraryScreen() {
         </StudyCard>
 
         <StudyCard style={styles.statusCard}>
-          <SectionHeader title="Generated Assets" detail={`${parsingCount} sources parsing`} />
+          <SectionHeader title="Study Tools" detail={`${parsingCount} being prepared`} />
           <View style={styles.assetGrid}>
             <View style={styles.assetRow}>
               <ThemedText type="metric">{generatedTotals.notes}</ThemedText>
@@ -277,7 +276,7 @@ export default function LibraryScreen() {
       </View>
 
       <StudyCard>
-        <SectionHeader title="Parsing Queue" detail="Source metadata, progress, and generated output." />
+        <SectionHeader title="Recent Uploads" detail="See what is ready." />
         {sources.map((source) => {
           const sourceAssets = countAssets(source, assets);
 
@@ -344,7 +343,7 @@ const styles = StyleSheet.create({
   },
   uploadDropzone: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
     borderStyle: 'dashed',
     gap: Spacing.one,
@@ -366,7 +365,7 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   sourceRow: {
-    borderRadius: 14,
+    borderRadius: 24,
     borderCurve: 'continuous',
     flexDirection: 'row',
     flexWrap: 'wrap',

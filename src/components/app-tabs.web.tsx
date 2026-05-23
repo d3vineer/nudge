@@ -82,11 +82,18 @@ export function CustomTabList(props: TabListProps) {
           styles.innerContainer,
           {
             borderColor: colors.hairline,
-            boxShadow: '0 10px 30px rgba(10, 10, 10, 0.08)',
+            boxShadow: '0 24px 70px rgba(37, 99, 235, 0.12)',
           },
         ]}>
         <ThemedView style={styles.brandLockup}>
-          <ThemedView style={[styles.logoMark, { backgroundColor: colors.primary }]}>
+          <ThemedView
+            style={[
+              styles.logoMark,
+              {
+                backgroundColor: colors.primary,
+                backgroundImage: 'linear-gradient(135deg, #60A5FA, #BAE6FD)',
+              },
+            ]}>
             <ThemedText type="smallBold" style={[styles.logoText, { color: colors.onPrimary }]}>
               n
             </ThemedText>
@@ -157,7 +164,7 @@ const styles = StyleSheet.create({
   innerContainer: {
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
-    borderRadius: 16,
+    borderRadius: 28,
     borderCurve: 'continuous',
     borderWidth: 1,
     flexDirection: 'row',
@@ -165,6 +172,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     gap: Spacing.one,
     maxWidth: MaxContentWidth,
+    backdropFilter: 'blur(22px)',
   },
   brandLockup: {
     backgroundColor: 'transparent',
@@ -177,16 +185,16 @@ const styles = StyleSheet.create({
   logoMark: {
     width: 34,
     height: 34,
-    borderRadius: 10,
+    borderRadius: 16,
     borderCurve: 'continuous',
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ rotate: '-10deg' }],
+    transform: [{ rotate: '10deg' }],
   },
   logoText: {
     fontSize: 22,
     lineHeight: 24,
-    transform: [{ rotate: '10deg' }],
+    transform: [{ rotate: '8deg' }],
   },
   brandText: {
     paddingRight: Spacing.two,
@@ -197,7 +205,7 @@ const styles = StyleSheet.create({
   tabButtonView: {
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
-    borderRadius: 10,
+    borderRadius: 999,
     borderCurve: 'continuous',
   },
   tabButtonViewCompact: {

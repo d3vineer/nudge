@@ -18,29 +18,30 @@ import { useTheme } from '@/hooks/use-theme';
 export default function DashboardScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const isDark = theme.background === '#07111F';
   const totalDueCards = dailyQueue.reduce((sum, item) => sum + Number.parseInt(item.due, 10), 0);
   const readySources = sources.filter((source) => source.progress === 100).length;
 
   return (
     <StudyScreen
-      eyebrow="Adaptive study flow"
-      title="Today’s memory plan is ready"
-      subtitle="Nudge blends active recall, spaced repetition, and focused sessions into one calm queue.">
+      eyebrow="Today"
+      title="Your study plan is ready"
+      subtitle="A simple queue for what to review, read, and focus on next.">
       <View style={styles.heroGrid}>
-        <StudyCard tone="darkSurface" style={styles.heroCard}>
-          <ThemedText type="caption" style={{ color: theme.brandMint }}>
-            Forgetting risk
+        <StudyCard style={[styles.heroCard, styles.heroGlowCard, isDark && styles.heroGlowCardDark]}>
+          <ThemedText type="caption" style={{ color: theme.primary }}>
+            Risk today
           </ThemedText>
-          <ThemedText type="metric" style={{ color: theme.onDark }}>
+          <ThemedText type="metric">
             23%
           </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textMuted }}>
-            Lower than last Thursday after two strong reviews.
+          <ThemedText type="small" themeColor="textSecondary">
+            You are in a good spot after recent reviews.
           </ThemedText>
           <View style={styles.buttonRow}>
-            <ActionButton label="Start queue" onPress={() => router.push('/reviews')} />
+            <ActionButton label="Start review" onPress={() => router.push('/reviews')} />
             <ActionButton
-              label="Upload source"
+              label="Add material"
               variant="secondary"
               onPress={() => router.push('/library')}
             />
@@ -49,26 +50,26 @@ export default function DashboardScreen() {
 
         <View style={styles.metricGrid}>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandLavender }]}>
-            <ThemedText type="caption">Due now</ThemedText>
+            <ThemedText type="caption">Review</ThemedText>
             <ThemedText type="metric">{totalDueCards}</ThemedText>
-            <ThemedText type="small">cards across 3 courses</ThemedText>
+            <ThemedText type="small">cards due now</ThemedText>
           </StudyCard>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandPeach }]}>
-            <ThemedText type="caption">Deep work</ThemedText>
+            <ThemedText type="caption">Focus</ThemedText>
             <ThemedText type="metric">50</ThemedText>
-            <ThemedText type="small">minute session suggested</ThemedText>
+            <ThemedText type="small">minutes suggested</ThemedText>
           </StudyCard>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandMint }]}>
-            <ThemedText type="caption">Sources ready</ThemedText>
+            <ThemedText type="caption">Materials</ThemedText>
             <ThemedText type="metric">{readySources}/{sources.length}</ThemedText>
-            <ThemedText type="small">parsed into study assets</ThemedText>
+            <ThemedText type="small">ready to study</ThemedText>
           </StudyCard>
         </View>
       </View>
 
       <View style={styles.grid}>
-        <StudyCard style={styles.column}>
-          <SectionHeader title="Daily Queue" detail="Ordered by predicted recall drop." />
+        <StudyCard style={[styles.column, styles.playfulPanel, isDark && styles.playfulPanelDark]}>
+          <SectionHeader title="Today’s Queue" detail="Start with these." />
           {dailyQueue.map((item) => (
             <ThemedView key={item.title} style={styles.queueItem}>
               <View
@@ -80,7 +81,7 @@ export default function DashboardScreen() {
               <View style={styles.queueCopy}>
                 <ThemedText type="smallBold">{item.title}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {item.course} - {item.difficulty} difficulty
+                  {item.course} - {item.difficulty}
                 </ThemedText>
               </View>
               <View style={styles.queueMeta}>
@@ -93,8 +94,8 @@ export default function DashboardScreen() {
           ))}
         </StudyCard>
 
-        <StudyCard style={styles.column}>
-          <SectionHeader title="Study Blocks" detail="A suggested rhythm for today." />
+        <StudyCard style={[styles.column, styles.playfulPanelAlt, isDark && styles.playfulPanelAltDark]}>
+          <SectionHeader title="Study Blocks" detail="A gentle plan for the day." />
           {studyBlocks.map((block) => (
             <ThemedView key={block.label} type="backgroundElement" style={styles.blockRow}>
               <ThemedText type="smallBold">{block.time}</ThemedText>
@@ -113,8 +114,8 @@ export default function DashboardScreen() {
       </View>
 
       <View style={styles.grid}>
-        <StudyCard style={styles.column}>
-          <SectionHeader title="Retention Insights" detail="What the optimizer is noticing." />
+        <StudyCard style={[styles.column, styles.playfulPanelAlt, isDark && styles.playfulPanelAltDark]}>
+          <SectionHeader title="Notes From Nudge" detail="Small things to keep in mind." />
           {retentionInsights.map((insight) => (
             <ThemedView key={insight} style={styles.insightRow}>
               <View style={[styles.accentDot, { backgroundColor: theme.brandCoral }]} />
@@ -125,8 +126,8 @@ export default function DashboardScreen() {
           ))}
         </StudyCard>
 
-        <StudyCard style={styles.column}>
-          <SectionHeader title="Weak Topics" detail="Needs interleaving this week." />
+        <StudyCard style={[styles.column, styles.playfulPanel, isDark && styles.playfulPanelDark]}>
+          <SectionHeader title="Needs Practice" detail="Mix these into your next session." />
           <View style={styles.topicWrap}>
             {weakTopics.map((topic) => (
               <ThemedView key={topic} type="backgroundElement" style={styles.topicPill}>
@@ -150,6 +151,14 @@ const styles = StyleSheet.create({
     flexGrow: 2,
     flexBasis: 440,
   },
+  heroGlowCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.84)',
+    boxShadow: '0 28px 80px rgba(184, 164, 237, 0.2), 0 0 70px rgba(164, 212, 197, 0.28)',
+  },
+  heroGlowCardDark: {
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    boxShadow: '0 28px 80px rgba(96, 165, 250, 0.12), 0 0 70px rgba(184, 164, 237, 0.1)',
+  },
   metricGrid: {
     flexGrow: 1,
     flexBasis: 300,
@@ -172,6 +181,18 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 360,
   },
+  playfulPanel: {
+    backgroundColor: 'rgba(184, 164, 237, 0.16)',
+  },
+  playfulPanelAlt: {
+    backgroundColor: 'rgba(164, 212, 197, 0.24)',
+  },
+  playfulPanelDark: {
+    backgroundColor: 'rgba(184, 164, 237, 0.12)',
+  },
+  playfulPanelAltDark: {
+    backgroundColor: 'rgba(164, 212, 197, 0.1)',
+  },
   queueItem: {
     backgroundColor: 'transparent',
     flexDirection: 'row',
@@ -180,9 +201,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   accentDot: {
-    width: 12,
-    height: 12,
+    width: 14,
+    height: 14,
     borderRadius: 999,
+    boxShadow: '0 0 18px rgba(96, 165, 250, 0.34)',
   },
   queueCopy: {
     flex: 1,

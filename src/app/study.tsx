@@ -32,18 +32,18 @@ const sessionModes: SessionMode[] = [
     name: 'Pomodoro',
     studyMinutes: 25,
     breakMinutes: 5,
-    description: 'Best for active recall, flashcards, and short quiz bursts.',
+    description: 'Good for quick reviews, cards, and short quizzes.',
   },
   {
     id: 'deep',
     name: 'Deep study',
     studyMinutes: 50,
     breakMinutes: 10,
-    description: 'Best for reading dense chapters, note synthesis, and problem sets.',
+    description: 'Good for reading, notes, and harder problem sets.',
   },
 ];
 
-const sessionPlan = ['Review Biology cards', 'Read calculus proof notes', 'Quiz history sources'];
+const sessionPlan = ['Review Biology cards', 'Read calculus notes', 'Try a history quiz'];
 
 function secondsFor(mode: SessionMode, phase: SessionPhase) {
   return (phase === 'study' ? mode.studyMinutes : mode.breakMinutes) * 60;
@@ -76,8 +76,11 @@ export default function StudySessionScreen() {
     [phase, selectedMode]
   );
   const progress = totalSeconds === 0 ? 0 : 1 - remainingSeconds / totalSeconds;
-  const phaseLabel = phase === 'study' ? 'Focus block' : 'Recovery break';
-  const nextPhaseLabel = phase === 'study' ? 'break' : 'next study block';
+  const phaseLabel = phase === 'study' ? 'Focus time' : 'Break time';
+  const nextPhaseLabel = phase === 'study' ? 'break' : 'next focus block';
+  const accentColor = phase === 'study' ? theme.brandPink : theme.brandMint;
+  const isDark = theme.background === '#07111F';
+  const selectedCardText = isDark ? '#FFFFFF' : '#0F172A';
 
   useEffect(() => {
     if (!isRunning) {
@@ -148,14 +151,14 @@ export default function StudySessionScreen() {
 
   return (
     <StudyScreen
-      eyebrow="Focus session"
-      title="Pick the rhythm for this block"
-      subtitle="Pomodoro and deep study modes share the same queue, but adapt intensity to your pace.">
+      eyebrow="Focus"
+      title="Choose your study rhythm"
+      subtitle="Start a short Pomodoro or a longer deep work session.">
       <View style={styles.modeGrid}>
         {sessionModes.map((mode) => {
           const isSelected = mode.id === selectedMode.id;
           const surfaceColor = mode.id === 'pomodoro' ? theme.brandPink : theme.brandTeal;
-          const textColor = mode.id === 'pomodoro' ? theme.onPrimary : theme.onDark;
+          const textColor = selectedCardText;
 
           return (
             <StudyCard
@@ -181,8 +184,8 @@ export default function StudySessionScreen() {
                   </ThemedText>
                 </View>
                 {isSelected ? (
-                  <ThemedView style={[styles.selectedPill, { backgroundColor: theme.background }]}>
-                    <ThemedText type="smallBold">Active</ThemedText>
+                  <ThemedView style={[styles.selectedPill, { backgroundColor: 'rgba(255, 255, 255, 0.78)' }]}>
+                    <ThemedText type="smallBold" style={{ color: '#0F172A' }}>Selected</ThemedText>
                   </ThemedView>
                 ) : null}
               </View>
@@ -194,12 +197,12 @@ export default function StudySessionScreen() {
               </ThemedText>
               <View style={styles.buttonRow}>
                 <ActionButton
-                  label={isSelected ? 'Restart mode' : 'Choose mode'}
+                  label={isSelected ? 'Restart' : 'Choose'}
                   variant={isSelected ? 'secondary' : 'primary'}
                   onPress={() => (isSelected ? startSession(mode) : selectMode(mode))}
                 />
                 <ActionButton
-                  label={`Start ${mode.studyMinutes}/${mode.breakMinutes}`}
+                  label="Start"
                   variant="secondary"
                   onPress={() => startSession(mode)}
                 />
@@ -210,24 +213,24 @@ export default function StudySessionScreen() {
       </View>
 
       <View style={styles.sessionGrid}>
-        <StudyCard tone="darkSurface" style={styles.timerPanel}>
+        <StudyCard style={[styles.timerPanel, styles.timerGlowCard, isDark && styles.timerGlowCardDark]}>
           <View style={styles.cardTopRow}>
             <View>
-              <ThemedText type="caption" style={{ color: theme.brandMint }}>
+              <ThemedText type="caption" style={styles.timerDarkText}>
                 {selectedMode.name}
               </ThemedText>
-              <ThemedText type="small" style={{ color: theme.textMuted }}>
+              <ThemedText type="smallBold" style={styles.timerDarkText}>
                 {phaseLabel}
               </ThemedText>
             </View>
-            <ThemedView style={[styles.statusPill, { backgroundColor: theme.brandMint }]}>
+            <ThemedView style={[styles.statusPill, { backgroundColor: accentColor }]}>
               <ThemedText type="smallBold">
                 {isRunning ? 'Running' : remainingSeconds === totalSeconds ? 'Ready' : 'Paused'}
               </ThemedText>
             </ThemedView>
           </View>
 
-          <ThemedText type="metric" style={[styles.timerText, { color: theme.onDark }]}>
+          <ThemedText type="metric" style={styles.timerText}>
             {formatTime(remainingSeconds)}
           </ThemedText>
 
@@ -237,14 +240,14 @@ export default function StudySessionScreen() {
                 styles.progressFill,
                 {
                   width: `${Math.round(progress * 100)}%`,
-                  backgroundColor: phase === 'study' ? theme.brandPink : theme.brandMint,
+                  backgroundColor: accentColor,
                 },
               ]}
             />
           </ThemedView>
 
-          <ThemedText type="small" style={{ color: theme.textMuted }}>
-            Finish this {phase} phase to move into your {nextPhaseLabel}.
+          <ThemedText type="smallBold" style={styles.timerDarkText}>
+            Finish this {phase === 'study' ? 'focus block' : 'break'} to move into your {nextPhaseLabel}.
           </ThemedText>
 
           <View style={styles.buttonRow}>
@@ -253,7 +256,7 @@ export default function StudySessionScreen() {
               onPress={() => setIsRunning((current) => !current)}
             />
             <ActionButton
-              label={`Finish ${phase}`}
+              label="Finish"
               variant="secondary"
               onPress={() => completeCurrentPhase(false)}
             />
@@ -262,7 +265,7 @@ export default function StudySessionScreen() {
         </StudyCard>
 
         <StudyCard style={styles.sidePanel}>
-          <SectionHeader title="Session Plan" detail="Balanced for active recall and interleaving." />
+          <SectionHeader title="Plan" detail="A simple path for this session." />
           {sessionPlan.map((item, index) => (
             <ThemedView key={item} style={styles.planRow}>
               <ThemedView type="backgroundSelected" style={styles.stepBadge}>
@@ -277,13 +280,13 @@ export default function StudySessionScreen() {
       <StudyCard>
         <SectionHeader
           title="Session Log"
-          detail="Temporary history for this app session; persistence comes next."
+          detail="Completed blocks for this session."
         />
         {sessionLog.length === 0 ? (
           <ThemedView type="backgroundElement" style={styles.emptyLog}>
-            <ThemedText type="smallBold">No completed blocks yet</ThemedText>
+            <ThemedText type="smallBold">Nothing finished yet</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Complete a focus block or break to add it here.
+              Finish a focus block or break to add it here.
             </ThemedText>
           </ThemedView>
         ) : (
@@ -347,9 +350,21 @@ const styles = StyleSheet.create({
     flexGrow: 2,
     flexBasis: 460,
   },
+  timerGlowCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.84)',
+    boxShadow: '0 28px 80px rgba(184, 164, 237, 0.22), 0 0 70px rgba(164, 212, 197, 0.34)',
+  },
+  timerGlowCardDark: {
+    backgroundColor: 'rgba(226, 232, 240, 0.92)',
+    boxShadow: '0 28px 80px rgba(96, 165, 250, 0.2), 0 0 70px rgba(184, 164, 237, 0.16)',
+  },
   timerText: {
     fontSize: 76,
     lineHeight: 84,
+    color: '#0F172A',
+  },
+  timerDarkText: {
+    color: '#0F172A',
   },
   statusPill: {
     borderRadius: 999,
@@ -385,13 +400,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyLog: {
-    borderRadius: 12,
+    borderRadius: 22,
     borderCurve: 'continuous',
     gap: Spacing.one,
     padding: Spacing.three,
   },
   logRow: {
-    borderRadius: 12,
+    borderRadius: 22,
     borderCurve: 'continuous',
     flexDirection: 'row',
     alignItems: 'center',
