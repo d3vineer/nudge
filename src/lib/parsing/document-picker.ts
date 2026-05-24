@@ -6,6 +6,11 @@ const allowedTypes = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'image/heic',
+  'image/heif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
   'text/plain',
 ];
 
@@ -22,6 +27,11 @@ function inferMimeType(name: string, mimeType?: string) {
   if (lowerName.endsWith('.pptx')) {
     return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
   }
+  if (lowerName.endsWith('.heic')) return 'image/heic';
+  if (lowerName.endsWith('.heif')) return 'image/heif';
+  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
+  if (lowerName.endsWith('.png')) return 'image/png';
+  if (lowerName.endsWith('.webp')) return 'image/webp';
   if (lowerName.endsWith('.txt')) return 'text/plain';
 
   return 'application/octet-stream';
@@ -36,7 +46,7 @@ function pickWebFiles(): Promise<PickedStudyFile[]> {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.pptx,.docx,.txt,text/plain,application/pdf';
+    input.accept = '.pdf,.pptx,.docx,.txt,.png,.jpg,.jpeg,.webp,.heic,.heif,text/plain,application/pdf,image/*';
     input.onchange = () => {
       const files = Array.from(input.files ?? []);
       resolve(

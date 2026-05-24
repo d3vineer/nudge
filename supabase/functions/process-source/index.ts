@@ -22,7 +22,7 @@ type GeminiSchema =
   | { properties: Record<string, GeminiSchema>; required?: string[]; type: 'OBJECT' };
 
 function minimumUsefulCharacters(source: SourceRow) {
-  return source.mime_type === 'text/plain' ? 20 : 500;
+  return source.mime_type === 'text/plain' || source.mime_type.startsWith('image/') ? 20 : 120;
 }
 
 function logStage(sourceId: string, stage: string, detail?: string) {
@@ -95,6 +95,54 @@ async function extractText(source: SourceRow, fileBuffer: ArrayBuffer) {
   }
 
   return String(data.text ?? '');
+}
+
+async function extractTextWithGemini(source: SourceRow, fileBuffer: ArrayBuffer) {
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is required for PDF and image parsing.');
+  }
+
+  const model = Deno.env.get('GEMINI_EXTRACTION_MODEL') ?? Deno.env.get('GEMINI_GENERATION_MODEL') ?? 'gemini-2.5-flash';
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text:
+                `Extract the readable study text from "${source.title}". ` +
+                'Return only the extracted text. Keep headings, formulas, labels, and bullet points when visible. ' +
+                'If the file is an image, perform OCR. If it is a PDF, read all pages you can access.',
+            },
+            {
+              inline_data: {
+                data: arrayBufferToBase64(fileBuffer),
+                mime_type: source.mime_type,
+              },
+            },
+          ],
+          role: 'user',
+        },
+      ],
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error?.message ?? 'Gemini file text extraction failed.');
+  }
+
+  return String(
+    data.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text ?? '')
+      .join('\n')
+      .trim() ?? ''
+  );
 }
 
 async function createEmbeddings(chunks: string[]) {
@@ -235,8 +283,21 @@ Deno.serve(async (request) => {
     }
 
     const fileBuffer = await downloadSource(source.storage_path);
-    const text = await extractText(source, fileBuffer);
+    let text = await extractText(source, fileBuffer);
     logStage(sourceId, 'extracted', `${text.trim().length} chars from ${source.mime_type}`);
+
+    if (
+      text.trim().length < minimumUsefulCharacters(source) &&
+      (source.mime_type === 'application/pdf' || source.mime_type.startsWith('image/'))
+    ) {
+      await Promise.all([
+        updateSource(sourceId, { progress: 32, stage: 'ocr', status: 'processing' }),
+        updateJob(sourceId, { stage: 'ocr', status: 'running' }),
+      ]);
+      logStage(sourceId, 'gemini_file_extract', source.mime_type);
+      text = await extractTextWithGemini(source, fileBuffer);
+      logStage(sourceId, 'gemini_file_extracted', `${text.trim().length} chars`);
+    }
 
     if (text.trim().length < minimumUsefulCharacters(source)) {
       await Promise.all([

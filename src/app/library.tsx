@@ -47,6 +47,10 @@ function inferType(source: SourceRecord) {
     return 'Text notes';
   }
 
+  if (source.mimeType.startsWith('image/')) {
+    return 'Image';
+  }
+
   return 'Study material';
 }
 
