@@ -3,6 +3,7 @@ import React from 'react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import { FocusTimerProvider } from '@/components/focus-timer-controller';
 import { ThemeControllerProvider, useThemeController } from '@/components/theme-controller';
 
 export default function TabLayout() {
@@ -18,8 +19,10 @@ function ThemedShell() {
 
   return (
     <ThemeProvider value={mode === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+      <FocusTimerProvider>
+        <AnimatedSplashOverlay />
+        <AppTabs />
+      </FocusTimerProvider>
     </ThemeProvider>
   );
 }

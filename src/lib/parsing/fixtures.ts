@@ -24,7 +24,9 @@ export function getFixtureSources(): SourceRecord[] {
     stage: source.progress === 100 ? 'complete' : 'generate',
     status: source.progress === 100 ? 'ready' : 'processing',
     storagePath: `fixtures/${index}`,
+    subject: index === 0 ? 'Biology' : index === 1 ? 'Calculus' : 'History',
     title: source.title,
+    topic: index === 0 ? 'Neural signaling' : index === 1 ? 'Derivative rules' : 'Source analysis',
     updatedAt: new Date(Date.now() - index * 43_200_000).toISOString(),
   }));
 }

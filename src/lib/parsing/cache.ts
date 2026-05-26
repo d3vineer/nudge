@@ -37,6 +37,8 @@ async function getDatabase() {
         CREATE TABLE IF NOT EXISTS sources (
           id TEXT PRIMARY KEY NOT NULL,
           title TEXT NOT NULL,
+          subject TEXT,
+          topic TEXT,
           mime_type TEXT NOT NULL,
           storage_path TEXT NOT NULL,
           size INTEGER NOT NULL,
@@ -56,6 +58,10 @@ async function getDatabase() {
           created_at TEXT NOT NULL
         );
       `);
+      await Promise.all([
+        db.runAsync('ALTER TABLE sources ADD COLUMN subject TEXT').catch(() => null),
+        db.runAsync('ALTER TABLE sources ADD COLUMN topic TEXT').catch(() => null),
+      ]);
 
       return db;
     });
@@ -71,10 +77,12 @@ export async function cacheSource(source: SourceRecord) {
 
   await db.runAsync(
     `INSERT OR REPLACE INTO sources
-      (id, title, mime_type, storage_path, size, status, progress, stage, error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, title, subject, topic, mime_type, storage_path, size, status, progress, stage, error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     source.id,
     source.title,
+    source.subject,
+    source.topic,
     source.mimeType,
     source.storagePath,
     source.size,
@@ -121,7 +129,9 @@ export async function listCachedSources(): Promise<SourceRecord[]> {
     stage: SourceRecord['stage'];
     status: SourceRecord['status'];
     storage_path: string;
+    subject: string | null;
     title: string;
+    topic: string | null;
     updated_at: string;
   }>('SELECT * FROM sources ORDER BY created_at DESC');
 
@@ -135,7 +145,9 @@ export async function listCachedSources(): Promise<SourceRecord[]> {
     stage: SourceRecord['stage'];
     status: SourceRecord['status'];
     storage_path: string;
+    subject: string | null;
     title: string;
+    topic: string | null;
     updated_at: string;
   }) => ({
     createdAt: row.created_at,
@@ -147,7 +159,9 @@ export async function listCachedSources(): Promise<SourceRecord[]> {
     stage: row.stage,
     status: row.status,
     storagePath: row.storage_path,
+    subject: row.subject,
     title: row.title,
+    topic: row.topic,
     updatedAt: row.updated_at,
   }));
 }
@@ -182,4 +196,16 @@ export async function listCachedAssets(): Promise<GeneratedAssetRecord[]> {
     title: row.title,
     type: row.type,
   }));
+}
+
+export async function removeCachedSource(sourceId: string) {
+  memorySources.delete(sourceId);
+  memoryAssets.delete(sourceId);
+  const db = await getDatabase();
+  if (!db) return;
+
+  await Promise.all([
+    db.runAsync('DELETE FROM sources WHERE id = ?', sourceId),
+    db.runAsync('DELETE FROM generated_assets WHERE source_id = ?', sourceId),
+  ]);
 }

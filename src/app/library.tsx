@@ -1,17 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { hasSupabaseConfig } from '@/lib/env';
-import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
+import { listCachedAssets, listCachedSources, removeCachedSource } from '@/lib/parsing/cache';
 import { pickStudyFiles } from '@/lib/parsing/document-picker';
 import { getFixtureAssets, getFixtureSources } from '@/lib/parsing/fixtures';
 import { refreshParsingState, uploadAndProcessFiles } from '@/lib/parsing/pipeline';
-import { startProcessing } from '@/lib/parsing/supabase-api';
+import { deleteSource, startProcessing } from '@/lib/parsing/supabase-api';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
@@ -115,6 +115,8 @@ export default function LibraryScreen() {
   const router = useRouter();
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [assets, setAssets] = useState<GeneratedAssetRecord[]>([]);
+  const [subject, setSubject] = useState('');
+  const [topic, setTopic] = useState('');
   const [isBusy, setIsBusy] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(
     hasSupabaseConfig()
@@ -186,7 +188,10 @@ export default function LibraryScreen() {
         return;
       }
 
-      const results = await uploadAndProcessFiles(files);
+      const results = await uploadAndProcessFiles(files, {
+        subject: subject.trim(),
+        topic: topic.trim(),
+      });
       setSources((current) => [...results.map((result) => result.source), ...current]);
       const failedResults = results.filter((result) => result.source.status === 'failed');
       setUploadMessage(
@@ -222,6 +227,23 @@ export default function LibraryScreen() {
     }
   }
 
+  async function removeSource(sourceId: string) {
+    setIsBusy(true);
+    try {
+      if (hasSupabaseConfig() && !sourceId.startsWith('fixture-')) {
+        await deleteSource(sourceId);
+      }
+      await removeCachedSource(sourceId);
+      setSources((current) => current.filter((source) => source.id !== sourceId));
+      setAssets((current) => current.filter((asset) => asset.sourceId !== sourceId));
+      setUploadMessage('Upload deleted.');
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Could not delete upload.');
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   return (
     <StudyScreen
       eyebrow="Library"
@@ -234,6 +256,42 @@ export default function LibraryScreen() {
           <ThemedText type="small">
             We’ll read it and make summaries, notes, flashcards, and quizzes.
           </ThemedText>
+          <View style={styles.metadataGrid}>
+            <View style={styles.inputGroup}>
+              <ThemedText type="smallBold">Subject</ThemedText>
+              <TextInput
+                value={subject}
+                onChangeText={setSubject}
+                placeholder="Biology"
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.textInput,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.hairline,
+                    color: theme.text,
+                  },
+                ]}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <ThemedText type="smallBold">Topic</ThemedText>
+              <TextInput
+                value={topic}
+                onChangeText={setTopic}
+                placeholder="Reproduction"
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.textInput,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.hairline,
+                    color: theme.text,
+                  },
+                ]}
+              />
+            </View>
+          </View>
           <ThemedView style={[styles.uploadDropzone, { borderColor: theme.primary }]}>
             <ThemedText type="sectionTitle">Ready when you are</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
@@ -291,6 +349,20 @@ export default function LibraryScreen() {
                 <ThemedText type="small" themeColor="textSecondary">
                   {inferType(source)} - {formatSize(source.size)} - {formatDate(source.createdAt)}
                 </ThemedText>
+                {(source.subject || source.topic) && (
+                  <View style={styles.tagRow}>
+                    {source.subject ? (
+                      <ThemedView type="backgroundSelected" style={styles.labelPill}>
+                        <ThemedText type="smallBold">{source.subject}</ThemedText>
+                      </ThemedView>
+                    ) : null}
+                    {source.topic ? (
+                      <ThemedView type="backgroundElement" style={styles.labelPill}>
+                        <ThemedText type="smallBold">{source.topic}</ThemedText>
+                      </ThemedView>
+                    ) : null}
+                  </View>
+                )}
                 {source.error && (
                   <ThemedText type="smallBold" style={{ color: theme.error }}>
                     {source.error}
@@ -326,6 +398,11 @@ export default function LibraryScreen() {
                     onPress={() => retrySource(source.id)}
                   />
                 )}
+                <ActionButton
+                  label="Delete"
+                  variant="secondary"
+                  onPress={() => removeSource(source.id)}
+                />
               </View>
             </ThemedView>
           );
@@ -352,6 +429,27 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     gap: Spacing.one,
     padding: Spacing.three,
+  },
+  metadataGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  inputGroup: {
+    flexBasis: 180,
+    flexGrow: 1,
+    gap: Spacing.one,
+  },
+  textInput: {
+    borderCurve: 'continuous',
+    borderRadius: 18,
+    borderWidth: 1,
+    fontFamily: 'Plus Jakarta Sans, sans-serif',
+    fontSize: 15,
+    fontWeight: '700',
+    minHeight: 50,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
   },
   statusCard: {
     flexGrow: 1,
@@ -392,6 +490,16 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 999,
+  },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+  },
+  labelPill: {
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
   sourceMeta: {
     alignItems: 'flex-end',

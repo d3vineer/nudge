@@ -14,6 +14,8 @@ export type ParseStage =
 export type SourceRecord = {
   id: string;
   title: string;
+  subject: string | null;
+  topic: string | null;
   mimeType: string;
   storagePath: string;
   size: number;
@@ -55,6 +57,11 @@ export type PickedStudyFile = {
   size: number;
   uri?: string;
   file?: File;
+};
+
+export type UploadMetadata = {
+  subject?: string;
+  topic?: string;
 };
 
 export type UploadResult = {

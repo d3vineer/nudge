@@ -48,3 +48,16 @@ export async function listCachedAssets(): Promise<GeneratedAssetRecord[]> {
   const stored = readStorage<GeneratedAssetRecord>(assetKey);
   return stored.length > 0 ? stored : [...memoryAssets.values()];
 }
+
+export async function removeCachedSource(sourceId: string) {
+  memorySources.delete(sourceId);
+  memoryAssets.delete(sourceId);
+  writeStorage(
+    sourceKey,
+    readStorage<SourceRecord>(sourceKey).filter((source) => source.id !== sourceId)
+  );
+  writeStorage(
+    assetKey,
+    readStorage<GeneratedAssetRecord>(assetKey).filter((asset) => asset.sourceId !== sourceId)
+  );
+}

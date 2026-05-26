@@ -51,6 +51,11 @@ function sourceType(source?: SourceRecord) {
   return 'Study material';
 }
 
+function sourceTopicLabel(source?: SourceRecord) {
+  if (!source?.subject && !source?.topic) return null;
+  return [source.subject, source.topic].filter(Boolean).join(' - ');
+}
+
 export default function AssetsScreen() {
   const theme = useTheme();
   const isDark = theme.background === '#07111F';
@@ -148,6 +153,11 @@ export default function AssetsScreen() {
                     <ThemedText type="small" themeColor="textSecondary">
                       {sourceType(source)} - {asset.content.flashcards.length} cards
                     </ThemedText>
+                    {sourceTopicLabel(source) ? (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {sourceTopicLabel(source)}
+                      </ThemedText>
+                    ) : null}
                   </View>
                   <ThemedView
                     style={[
@@ -171,7 +181,7 @@ export default function AssetsScreen() {
               <View style={styles.contentHeader}>
                 <View style={styles.sourceCopy}>
                   <ThemedText type="caption" themeColor="textSecondary">
-                    {sourceType(selectedSource)}
+                    {sourceTopicLabel(selectedSource) ?? sourceType(selectedSource)}
                   </ThemedText>
                   <ThemedText type="sectionTitle">{selectedAsset.title}</ThemedText>
                 </View>

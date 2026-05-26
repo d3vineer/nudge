@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.get-source-assets]
 verify_jwt = false
+
+[functions.delete-source]
+verify_jwt = false

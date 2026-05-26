@@ -26,6 +26,8 @@ Deno.serve(async (request) => {
     const title = String(body.title ?? '').trim();
     const mimeType = String(body.mimeType ?? '').trim();
     const size = Number(body.size ?? 0);
+    const subject = String(body.subject ?? '').trim() || null;
+    const topic = String(body.topic ?? '').trim() || null;
 
     if (!title || !supportedMimeTypes.has(mimeType) || !Number.isFinite(size) || size <= 0) {
       return json({ error: 'Unsupported or incomplete file metadata.' }, 400);
@@ -43,7 +45,9 @@ Deno.serve(async (request) => {
         stage: 'metadata',
         status: 'queued',
         storage_path: storagePath,
+        subject,
         title,
+        topic,
       },
       method: 'POST',
     });

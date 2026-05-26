@@ -5,7 +5,9 @@ type SourceRow = {
   id: string;
   mime_type: string;
   storage_path: string;
+  subject?: string | null;
   title: string;
+  topic?: string | null;
 };
 
 type StudyPack = {
@@ -53,6 +55,83 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   }
 
   return btoa(binary);
+}
+
+function uniqueValues(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function envList(name: string) {
+  return String(Deno.env.get(name) ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function modelCandidates(primaryEnvName: string, fallbackEnvName: string, defaultModels: string[]) {
+  return uniqueValues([
+    ...envList(primaryEnvName),
+    ...envList(fallbackEnvName),
+    ...defaultModels,
+  ]);
+}
+
+function isRetryableGeminiError(status: number, message: string) {
+  const lowerMessage = message.toLowerCase();
+  return (
+    status === 429 ||
+    status === 500 ||
+    status === 503 ||
+    lowerMessage.includes('high demand') ||
+    lowerMessage.includes('overload') ||
+    lowerMessage.includes('overloaded') ||
+    lowerMessage.includes('temporarily') ||
+    lowerMessage.includes('unavailable')
+  );
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function callGeminiGenerateContent(
+  apiKey: string,
+  models: string[],
+  body: Record<string, unknown>,
+  stage: string,
+  sourceId?: string
+) {
+  let lastMessage = 'Gemini request failed.';
+
+  for (const model of models) {
+    for (const waitMs of [0, 900, 1800]) {
+      if (waitMs > 0) await delay(waitMs);
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          body: JSON.stringify(body),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        logStage(sourceId ?? 'unknown', `${stage}_model`, model);
+        return data;
+      }
+
+      lastMessage = data?.error?.message ?? `${stage} failed with ${response.status}`;
+      console.warn(JSON.stringify({ model, sourceId, stage, status: response.status, warning: lastMessage }));
+
+      if (!isRetryableGeminiError(response.status, lastMessage)) {
+        throw new Error(lastMessage);
+      }
+    }
+  }
+
+  throw new Error('Gemini is busy right now. Please retry this upload in a few minutes.');
 }
 
 async function downloadSource(path: string) {
@@ -103,9 +182,16 @@ async function extractTextWithGemini(source: SourceRow, fileBuffer: ArrayBuffer)
     throw new Error('GEMINI_API_KEY is required for PDF and image parsing.');
   }
 
-  const model = Deno.env.get('GEMINI_EXTRACTION_MODEL') ?? Deno.env.get('GEMINI_GENERATION_MODEL') ?? 'gemini-2.5-flash';
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-    body: JSON.stringify({
+  const models = modelCandidates('GEMINI_EXTRACTION_MODEL', 'GEMINI_FALLBACK_MODELS', [
+    Deno.env.get('GEMINI_GENERATION_MODEL') ?? '',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+  ]);
+  const data = await callGeminiGenerateContent(
+    apiKey,
+    models,
+    {
       contents: [
         {
           parts: [
@@ -125,17 +211,10 @@ async function extractTextWithGemini(source: SourceRow, fileBuffer: ArrayBuffer)
           role: 'user',
         },
       ],
-    }),
-    headers: {
-      'Content-Type': 'application/json',
     },
-    method: 'POST',
-  });
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data?.error?.message ?? 'Gemini file text extraction failed.');
-  }
+    'extract',
+    source.id
+  );
 
   return String(
     data.candidates?.[0]?.content?.parts
@@ -213,15 +292,26 @@ async function generateStudyPack(source: SourceRow, chunks: string[]): Promise<S
     type: 'OBJECT',
   };
 
-  const model = Deno.env.get('GEMINI_GENERATION_MODEL') ?? 'gemini-2.5-flash';
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-    body: JSON.stringify({
+  const sourceContext = [
+    source.subject ? `Subject: ${source.subject}` : null,
+    source.topic ? `Topic: ${source.topic}` : null,
+  ].filter(Boolean).join('\n');
+  const models = modelCandidates('GEMINI_GENERATION_MODEL', 'GEMINI_FALLBACK_MODELS', [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+  ]);
+  const data = await callGeminiGenerateContent(
+    apiKey,
+    models,
+    {
       contents: [
         {
           parts: [
             {
               text:
                 `Create a focused study pack from the uploaded source "${source.title}". ` +
+                (sourceContext ? `${sourceContext}\n` : '') +
                 'Use only the provided source text. Prefer active recall, FSRS-friendly flashcards, and concise quiz answers.\n\n' +
                 chunks.join('\n\n---\n\n').slice(0, 80_000),
             },
@@ -233,17 +323,10 @@ async function generateStudyPack(source: SourceRow, chunks: string[]): Promise<S
         responseMimeType: 'application/json',
         responseSchema: schema,
       },
-    }),
-    headers: {
-      'Content-Type': 'application/json',
     },
-    method: 'POST',
-  });
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data?.error?.message ?? 'Gemini study pack generation failed.');
-  }
+    'generate',
+    source.id
+  );
 
   const text = data.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
   if (!text) {

@@ -4,6 +4,7 @@ import type {
   GeneratedAssetRecord,
   PickedStudyFile,
   SourceRecord,
+  UploadMetadata,
 } from '@/types/parsing';
 
 type SourceRow = {
@@ -16,7 +17,9 @@ type SourceRow = {
   stage: SourceRecord['stage'];
   status: SourceRecord['status'];
   storage_path: string;
+  subject?: string | null;
   title: string;
+  topic?: string | null;
   updated_at: string;
 };
 
@@ -96,7 +99,9 @@ export function mapSourceRow(row: SourceRow): SourceRecord {
     stage: row.stage,
     status: row.status,
     storagePath: row.storage_path,
+    subject: row.subject ?? null,
     title: row.title,
+    topic: row.topic ?? null,
     updatedAt: row.updated_at,
   };
 }
@@ -112,14 +117,16 @@ export function mapAssetRow(row: AssetRow): GeneratedAssetRecord {
   };
 }
 
-export async function createUpload(file: PickedStudyFile) {
+export async function createUpload(file: PickedStudyFile, metadata: UploadMetadata = {}) {
   requireConfig();
 
   const response = await fetch(functionUrl('create-upload'), {
     body: JSON.stringify({
       mimeType: file.mimeType,
       size: file.size,
+      subject: metadata.subject,
       title: file.name,
+      topic: metadata.topic,
     }),
     headers: headers(),
     method: 'POST',
@@ -186,6 +193,18 @@ export async function fetchAllSourceAssets() {
     assets: data.assets.map(mapAssetRow),
     sources: data.sources.map(mapSourceRow),
   };
+}
+
+export async function deleteSource(sourceId: string) {
+  requireConfig();
+
+  const response = await fetch(functionUrl('delete-source'), {
+    body: JSON.stringify({ sourceId }),
+    headers: headers(),
+    method: 'POST',
+  });
+
+  return readResponse<{ deleted: boolean; sourceId: string }>(response);
 }
 
 export async function listSources() {

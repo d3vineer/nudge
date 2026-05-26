@@ -1,61 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
+import { formatTimerTime, sessionModes, useFocusTimer } from '@/components/focus-timer-controller';
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { loadFocusSessions, saveFocusSession } from '@/lib/study-state';
-
-type SessionMode = {
-  id: 'pomodoro' | 'deep';
-  name: string;
-  studyMinutes: number;
-  breakMinutes: number;
-  description: string;
-};
-
-type SessionPhase = 'study' | 'break';
-
-type SessionLog = {
-  id: number;
-  mode: string;
-  phase: SessionPhase;
-  minutes: number;
-  completedAt: string;
-};
-
-const sessionModes: SessionMode[] = [
-  {
-    id: 'pomodoro',
-    name: 'Pomodoro',
-    studyMinutes: 25,
-    breakMinutes: 5,
-    description: 'Good for quick reviews, cards, and short quizzes.',
-  },
-  {
-    id: 'deep',
-    name: 'Deep study',
-    studyMinutes: 50,
-    breakMinutes: 10,
-    description: 'Good for reading, notes, and harder problem sets.',
-  },
-];
+import { loadFocusSessions } from '@/lib/study-state';
+import type { FocusSessionRecord } from '@/types/study-state';
 
 const sessionPlan = ['Review Biology cards', 'Read calculus notes', 'Try a history quiz'];
-
-function secondsFor(mode: SessionMode, phase: SessionPhase) {
-  return (phase === 'study' ? mode.studyMinutes : mode.breakMinutes) * 60;
-}
-
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
 
 function formatCompletedAt(date = new Date()) {
   return new Intl.DateTimeFormat(undefined, {
@@ -66,20 +22,24 @@ function formatCompletedAt(date = new Date()) {
 
 export default function StudySessionScreen() {
   const theme = useTheme();
-  const [selectedMode, setSelectedMode] = useState<SessionMode>(sessionModes[0]);
-  const [phase, setPhase] = useState<SessionPhase>('study');
-  const [remainingSeconds, setRemainingSeconds] = useState(secondsFor(sessionModes[0], 'study'));
-  const [isRunning, setIsRunning] = useState(false);
-  const [sessionLog, setSessionLog] = useState<SessionLog[]>([]);
-
-  const totalSeconds = useMemo(
-    () => secondsFor(selectedMode, phase),
-    [phase, selectedMode]
-  );
-  const progress = totalSeconds === 0 ? 0 : 1 - remainingSeconds / totalSeconds;
-  const phaseLabel = phase === 'study' ? 'Focus time' : 'Break time';
+  const {
+    accentColor,
+    completeCurrentPhase,
+    isRunning,
+    lastCompletedSession,
+    phase,
+    phaseLabel,
+    progress,
+    remainingSeconds,
+    resetSession,
+    selectMode,
+    selectedMode,
+    setIsRunning,
+    startSession,
+    totalSeconds,
+  } = useFocusTimer();
+  const [sessionLog, setSessionLog] = useState<FocusSessionRecord[]>([]);
   const nextPhaseLabel = phase === 'study' ? 'break' : 'next focus block';
-  const accentColor = phase === 'study' ? theme.brandPink : theme.brandMint;
   const isDark = theme.background === '#07111F';
   const selectedCardText = isDark ? '#FFFFFF' : '#0F172A';
 
@@ -97,71 +57,13 @@ export default function StudySessionScreen() {
   }, []);
 
   useEffect(() => {
-    if (!isRunning) {
-      return;
-    }
+    if (!lastCompletedSession) return;
 
-    const interval = setInterval(() => {
-      setRemainingSeconds((current) => Math.max(current - 1, 0));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isRunning]);
-
-  useEffect(() => {
-    if (remainingSeconds > 0 || !isRunning) {
-      return;
-    }
-
-    completeCurrentPhase(true);
-  }, [isRunning, remainingSeconds]);
-
-  function selectMode(mode: SessionMode) {
-    setSelectedMode(mode);
-    setPhase('study');
-    setRemainingSeconds(secondsFor(mode, 'study'));
-    setIsRunning(false);
-  }
-
-  function startSession(mode = selectedMode) {
-    setSelectedMode(mode);
-    setPhase('study');
-    setRemainingSeconds(secondsFor(mode, 'study'));
-    setIsRunning(true);
-  }
-
-  function resetSession() {
-    setIsRunning(false);
-    setPhase('study');
-    setRemainingSeconds(secondsFor(selectedMode, 'study'));
-  }
-
-  function completeCurrentPhase(autoAdvance = false) {
-    const completedMinutes =
-      phase === 'study' ? selectedMode.studyMinutes : selectedMode.breakMinutes;
-
-    const completedSession = {
-      completedAt: new Date().toISOString(),
-      id: Date.now(),
-      minutes: completedMinutes,
-      mode: selectedMode.name,
-      phase,
-    };
-
-    setSessionLog((current) => [completedSession, ...current].slice(0, 5));
-    saveFocusSession(completedSession);
-
-    if (phase === 'study') {
-      setPhase('break');
-      setRemainingSeconds(secondsFor(selectedMode, 'break'));
-      setIsRunning(autoAdvance);
-      return;
-    }
-
-    setPhase('study');
-    setRemainingSeconds(secondsFor(selectedMode, 'study'));
-    setIsRunning(false);
-  }
+    setSessionLog((current) => [
+      lastCompletedSession,
+      ...current.filter((item) => item.id !== lastCompletedSession.id),
+    ].slice(0, 5));
+  }, [lastCompletedSession]);
 
   return (
     <StudyScreen
@@ -245,7 +147,7 @@ export default function StudySessionScreen() {
           </View>
 
           <ThemedText type="metric" style={styles.timerText}>
-            {formatTime(remainingSeconds)}
+            {formatTimerTime(remainingSeconds)}
           </ThemedText>
 
           <ThemedView style={styles.progressTrack}>

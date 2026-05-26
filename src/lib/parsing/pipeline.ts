@@ -6,7 +6,13 @@ import {
   startProcessing,
   uploadOriginal,
 } from '@/lib/parsing/supabase-api';
-import type { GeneratedAssetRecord, PickedStudyFile, SourceRecord, UploadResult } from '@/types/parsing';
+import type {
+  GeneratedAssetRecord,
+  PickedStudyFile,
+  SourceRecord,
+  UploadMetadata,
+  UploadResult,
+} from '@/types/parsing';
 
 async function fileToBlob(file: PickedStudyFile) {
   if (file.file) {
@@ -21,8 +27,11 @@ async function fileToBlob(file: PickedStudyFile) {
   throw new Error(`Could not read ${file.name}.`);
 }
 
-export async function uploadAndProcessFile(file: PickedStudyFile): Promise<UploadResult> {
-  const upload = await createUpload(file);
+export async function uploadAndProcessFile(
+  file: PickedStudyFile,
+  metadata: UploadMetadata = {}
+): Promise<UploadResult> {
+  const upload = await createUpload(file, metadata);
   const uploadingSource: SourceRecord = {
     ...upload.source,
     progress: Math.max(upload.source.progress, 18),
@@ -67,11 +76,11 @@ export async function uploadAndProcessFile(file: PickedStudyFile): Promise<Uploa
   };
 }
 
-export async function uploadAndProcessFiles(files: PickedStudyFile[]) {
+export async function uploadAndProcessFiles(files: PickedStudyFile[], metadata: UploadMetadata = {}) {
   const results: UploadResult[] = [];
 
   for (const file of files) {
-    results.push(await uploadAndProcessFile(file));
+    results.push(await uploadAndProcessFile(file, metadata));
   }
 
   return results;
