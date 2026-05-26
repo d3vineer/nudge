@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { loadFocusSessions, saveFocusSession } from '@/lib/study-state';
 
 type SessionMode = {
   id: 'pomodoro' | 'deep';
@@ -56,11 +57,11 @@ function formatTime(totalSeconds: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function formatCompletedAt() {
+function formatCompletedAt(date = new Date()) {
   return new Intl.DateTimeFormat(undefined, {
     hour: 'numeric',
     minute: '2-digit',
-  }).format(new Date());
+  }).format(date);
 }
 
 export default function StudySessionScreen() {
@@ -81,6 +82,19 @@ export default function StudySessionScreen() {
   const accentColor = phase === 'study' ? theme.brandPink : theme.brandMint;
   const isDark = theme.background === '#07111F';
   const selectedCardText = isDark ? '#FFFFFF' : '#0F172A';
+
+  useEffect(() => {
+    let isMounted = true;
+
+    loadFocusSessions().then((sessions) => {
+      if (!isMounted) return;
+      setSessionLog(sessions.slice(0, 5));
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isRunning) {
@@ -126,16 +140,16 @@ export default function StudySessionScreen() {
     const completedMinutes =
       phase === 'study' ? selectedMode.studyMinutes : selectedMode.breakMinutes;
 
-    setSessionLog((current) => [
-      {
-        id: Date.now(),
-        mode: selectedMode.name,
-        phase,
-        minutes: completedMinutes,
-        completedAt: formatCompletedAt(),
-      },
-      ...current,
-    ].slice(0, 5));
+    const completedSession = {
+      completedAt: new Date().toISOString(),
+      id: Date.now(),
+      minutes: completedMinutes,
+      mode: selectedMode.name,
+      phase,
+    };
+
+    setSessionLog((current) => [completedSession, ...current].slice(0, 5));
+    saveFocusSession(completedSession);
 
     if (phase === 'study') {
       setPhase('break');
@@ -297,7 +311,7 @@ export default function StudySessionScreen() {
                   {item.mode} {item.phase}
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {item.completedAt}
+                  {formatCompletedAt(new Date(item.completedAt))}
                 </ThemedText>
               </View>
               <ThemedText type="smallBold">{item.minutes} min</ThemedText>

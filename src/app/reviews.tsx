@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
@@ -18,6 +18,7 @@ import {
   type RecallGrade,
   type ReviewCard,
 } from '@/lib/spaced-repetition';
+import { loadReviewCards, saveReviewCards } from '@/lib/study-state';
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`;
@@ -49,6 +50,20 @@ export default function ReviewsScreen() {
   const averageRecall =
     cards.reduce((sum, card) => sum + getRetrievability(card, now), 0) / Math.max(cards.length, 1);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    loadReviewCards().then((storedCards) => {
+      if (!isMounted || storedCards.length === 0) return;
+      setCards(storedCards);
+      setActiveCardId((current) => storedCards.find((card) => card.id === current)?.id ?? storedCards[0].id);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   function chooseCard(cardId: string) {
     setActiveCardId(cardId);
     setIsAnswerVisible(false);
@@ -58,14 +73,13 @@ export default function ReviewsScreen() {
     if (!activeCard) return;
 
     const reviewedCard = reviewCard(activeCard, grade, new Date());
-    setCards((current) => current.map((card) => (card.id === reviewedCard.id ? reviewedCard : card)));
+    const nextCards = cards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card));
+    setCards(nextCards);
+    saveReviewCards(nextCards);
     setLastReviewed(reviewedCard);
     setIsAnswerVisible(false);
 
-    const nextCard = interleaveReviewQueue(
-      cards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card)),
-      new Date()
-    ).find((card) => card.id !== reviewedCard.id);
+    const nextCard = interleaveReviewQueue(nextCards, new Date()).find((card) => card.id !== reviewedCard.id);
     if (nextCard) {
       setActiveCardId(nextCard.id);
     }
