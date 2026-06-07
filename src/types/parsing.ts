@@ -61,6 +61,7 @@ export type PickedStudyFile = {
 
 export type UploadMetadata = {
   subject?: string;
+  title?: string;
   topic?: string;
 };
 

@@ -8,8 +8,6 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { buildReviewCardsFromGeneratedAssets, mergeReviewCardsWithGeneratedCards } from '@/lib/generated-review-cards';
-import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import {
   formatDueDate,
   getElapsedDays,
@@ -20,7 +18,8 @@ import {
   type RecallGrade,
   type ReviewCard,
 } from '@/lib/spaced-repetition';
-import { loadReviewCards, saveReviewCards } from '@/lib/study-state';
+import { loadStudyReviewState } from '@/lib/study-review-loader';
+import { saveReviewCards } from '@/lib/study-state';
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`;
@@ -59,15 +58,10 @@ export default function ReviewsScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([loadReviewCards(), listCachedSources(), listCachedAssets()]).then(([storedCards, sources, assets]) => {
+    loadStudyReviewState().then(({ reviewCards: nextCards }) => {
       if (!isMounted) return;
-      const generatedCards = buildReviewCardsFromGeneratedAssets(assets, sources);
-      const nextCards = mergeReviewCardsWithGeneratedCards(storedCards, generatedCards);
       setCards(nextCards);
       setActiveCardId((current) => nextCards.find((card) => card.id === current)?.id ?? nextCards[0]?.id ?? '');
-      if (storedCards.length === 0 && nextCards.length > 0) {
-        saveReviewCards(nextCards);
-      }
     });
 
     return () => {

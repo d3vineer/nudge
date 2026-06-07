@@ -119,13 +119,14 @@ export function mapAssetRow(row: AssetRow): GeneratedAssetRecord {
 
 export async function createUpload(file: PickedStudyFile, metadata: UploadMetadata = {}) {
   requireConfig();
+  const title = metadata.title?.trim() || file.name;
 
   const response = await fetch(functionUrl('create-upload'), {
     body: JSON.stringify({
       mimeType: file.mimeType,
       size: file.size,
       subject: metadata.subject,
-      title: file.name,
+      title,
       topic: metadata.topic,
     }),
     headers: headers(),

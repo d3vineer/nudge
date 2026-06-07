@@ -8,11 +8,9 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { buildReviewCardsFromGeneratedAssets, mergeReviewCardsWithGeneratedCards } from '@/lib/generated-review-cards';
-import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import { formatDueDate, getDueState, getRetrievability, type ReviewCard } from '@/lib/spaced-repetition';
 import { calculateDashboardReviewMetrics, detectWeakTopics, getStudyStreak } from '@/lib/study-analytics';
-import { loadFocusSessions, loadReviewCards } from '@/lib/study-state';
+import { loadStudyReviewState } from '@/lib/study-review-loader';
 
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
@@ -72,11 +70,9 @@ export default function DashboardScreen() {
 
   useFocusEffect(useCallback(() => {
     let isMounted = true;
-    Promise.all([listCachedSources(), listCachedAssets(), loadReviewCards(), loadFocusSessions()]).then(([cachedSources, cachedAssets, storedCards, sessions]) => {
+    loadStudyReviewState().then(({ reviewCards: nextCards, sessions, sources }) => {
       if (!isMounted) return;
-      setHasRealMaterials(cachedSources.some((source) => !source.id.startsWith('fixture-')));
-      const generatedCards = buildReviewCardsFromGeneratedAssets(cachedAssets, cachedSources);
-      const nextCards = mergeReviewCardsWithGeneratedCards(storedCards, generatedCards);
+      setHasRealMaterials(sources.some((source) => !source.id.startsWith('fixture-')));
       setHasReviewState(nextCards.length > 0);
       setReviewCards(nextCards);
       setStudyStreak(getStudyStreak(sessions));

@@ -7,8 +7,6 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { buildReviewCardsFromGeneratedAssets, mergeReviewCardsWithGeneratedCards } from '@/lib/generated-review-cards';
-import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import {
   buildMasteryByTopic,
   buildRetentionCurve,
@@ -17,7 +15,7 @@ import {
   detectWeakTopics,
   getStudyStreak,
 } from '@/lib/study-analytics';
-import { loadStudyState } from '@/lib/study-state';
+import { loadStudyReviewState } from '@/lib/study-review-loader';
 import type { ReviewCard } from '@/lib/spaced-repetition';
 import type { FocusSessionRecord } from '@/types/study-state';
 
@@ -45,11 +43,10 @@ export default function AnalyticsScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([loadStudyState(), listCachedSources(), listCachedAssets()]).then(([state, sources, assets]) => {
+    loadStudyReviewState().then(({ reviewCards: nextCards, sessions: nextSessions }) => {
       if (!isMounted) return;
-      const generatedCards = buildReviewCardsFromGeneratedAssets(assets, sources);
-      setReviewCards(mergeReviewCardsWithGeneratedCards(state.reviewCards, generatedCards));
-      setSessions(state.sessions);
+      setReviewCards(nextCards);
+      setSessions(nextSessions);
     });
 
     return () => {

@@ -27,10 +27,41 @@ function writeStorage<T>(key: string, values: T[]) {
   }
 }
 
+function sourceRank(source: SourceRecord) {
+  const updatedAt = new Date(source.updatedAt).getTime();
+  return {
+    progress: source.progress,
+    updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
+  };
+}
+
+function dedupeSources(values: SourceRecord[]) {
+  const byId = new Map<string, SourceRecord>();
+
+  for (const source of values) {
+    const existing = byId.get(source.id);
+    if (!existing) {
+      byId.set(source.id, source);
+      continue;
+    }
+
+    const existingRank = sourceRank(existing);
+    const nextRank = sourceRank(source);
+    if (
+      nextRank.updatedAt > existingRank.updatedAt ||
+      (nextRank.updatedAt === existingRank.updatedAt && nextRank.progress >= existingRank.progress)
+    ) {
+      byId.set(source.id, source);
+    }
+  }
+
+  return [...byId.values()].sort((first, second) => sourceRank(second).updatedAt - sourceRank(first).updatedAt);
+}
+
 export async function cacheSource(source: SourceRecord) {
   memorySources.set(source.id, source);
-  const values = readStorage<SourceRecord>(sourceKey).filter((item) => item.id !== source.id);
-  writeStorage(sourceKey, [source, ...values]);
+  const values = readStorage<SourceRecord>(sourceKey);
+  writeStorage(sourceKey, dedupeSources([source, ...values]));
 }
 
 export async function cacheAsset(asset: GeneratedAssetRecord) {
@@ -41,7 +72,7 @@ export async function cacheAsset(asset: GeneratedAssetRecord) {
 
 export async function listCachedSources(): Promise<SourceRecord[]> {
   const stored = readStorage<SourceRecord>(sourceKey);
-  return stored.length > 0 ? stored : [...memorySources.values()];
+  return stored.length > 0 ? dedupeSources(stored) : dedupeSources([...memorySources.values()]);
 }
 
 export async function listCachedAssets(): Promise<GeneratedAssetRecord[]> {

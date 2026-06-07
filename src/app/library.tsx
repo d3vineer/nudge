@@ -15,15 +15,6 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
 
-const generationPreview = [
-  'Summary',
-  'Notes',
-  'Flashcards',
-  'Quiz',
-  'Weak topics',
-  'Review queue',
-];
-
 const commonSubjects = [
   'Biology',
   'Chemistry',
@@ -147,10 +138,41 @@ function countAssets(source: SourceRecord, assets: GeneratedAssetRecord[]) {
   };
 }
 
+function sourceRank(source: SourceRecord) {
+  const updatedAt = new Date(source.updatedAt).getTime();
+  return {
+    progress: source.progress,
+    updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
+  };
+}
+
+function dedupeSources(sources: SourceRecord[]) {
+  const byId = new Map<string, SourceRecord>();
+
+  for (const source of sources) {
+    const existing = byId.get(source.id);
+    if (!existing) {
+      byId.set(source.id, source);
+      continue;
+    }
+
+    const existingRank = sourceRank(existing);
+    const nextRank = sourceRank(source);
+    if (
+      nextRank.updatedAt > existingRank.updatedAt ||
+      (nextRank.updatedAt === existingRank.updatedAt && nextRank.progress >= existingRank.progress)
+    ) {
+      byId.set(source.id, source);
+    }
+  }
+
+  return [...byId.values()].sort((first, second) => sourceRank(second).updatedAt - sourceRank(first).updatedAt);
+}
+
 function mergeRemoteWithLocalDiagnostics(remoteSources: SourceRecord[], localSources: SourceRecord[]) {
   const localById = new Map(localSources.map((source) => [source.id, source]));
 
-  return remoteSources.map((remoteSource) => {
+  return dedupeSources(remoteSources.map((remoteSource) => {
     const localSource = localById.get(remoteSource.id);
     if (
       localSource?.status === 'failed' &&
@@ -161,7 +183,15 @@ function mergeRemoteWithLocalDiagnostics(remoteSources: SourceRecord[], localSou
     }
 
     return remoteSource;
-  });
+  }));
+}
+
+function buildStudyTitle(subject: string, topic: string) {
+  const nextSubject = subject.trim();
+  const nextTopic = topic.trim();
+
+  if (nextSubject && nextTopic) return `${nextSubject} - ${nextTopic}`;
+  return nextSubject || nextTopic;
 }
 
 export default function LibraryScreen() {
@@ -190,7 +220,7 @@ export default function LibraryScreen() {
       listCachedAssets(),
     ]);
 
-    setSources(cachedSources);
+    setSources(dedupeSources(cachedSources));
     setAssets(cachedAssets);
   }, []);
 
@@ -203,7 +233,7 @@ export default function LibraryScreen() {
 
     try {
       const nextState = await refreshParsingState();
-      setSources((current) => mergeRemoteWithLocalDiagnostics(nextState.sources, current));
+      setSources((current) => dedupeSources(mergeRemoteWithLocalDiagnostics(nextState.sources, current)));
       setAssets(nextState.assets);
       setUploadMessage('Library updated.');
     } catch (error) {
@@ -249,10 +279,11 @@ export default function LibraryScreen() {
     ]).slice(0, 16);
   }, [pastedText, searchQuery, sources, topic]);
   const filteredSources = useMemo(() => {
+    const dedupedSources = dedupeSources(sources);
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return sources;
+    if (!query) return dedupedSources;
 
-    return sources.filter((source) =>
+    return dedupedSources.filter((source) =>
       [source.title, source.subject ?? '', source.topic ?? '', inferType(source)]
         .join(' ')
         .toLowerCase()
@@ -264,7 +295,7 @@ export default function LibraryScreen() {
     const text = pastedText.trim();
     if (text.length < 50) return null;
 
-    const title = `${topic.trim() || subject.trim() || 'Pasted notes'}.txt`;
+    const title = `${buildStudyTitle(subject, topic) || 'Pasted notes'}.txt`;
     if (typeof File !== 'undefined') {
       return {
         file: new File([text], title, { type: 'text/plain' }),
@@ -293,6 +324,7 @@ export default function LibraryScreen() {
       const files = await pickStudyFiles();
       const textFile = makeTextFile();
       const uploadFiles = textFile ? [...files, textFile] : files;
+      const uploadTitle = buildStudyTitle(subject, topic);
 
       if (uploadFiles.length === 0) {
         setUploadMessage(
@@ -305,11 +337,12 @@ export default function LibraryScreen() {
 
       const results = await uploadAndProcessFiles(uploadFiles, {
         subject: subject.trim(),
+        title: uploadTitle || undefined,
         topic: topic.trim(),
       });
       setIsSubjectPickerOpen(false);
       setIsCustomSubjectOpen(false);
-      setSources((current) => [...results.map((result) => result.source), ...current]);
+      setSources((current) => dedupeSources([...results.map((result) => result.source), ...current]));
       const failedResults = results.filter((result) => result.source.status === 'failed');
       setUploadMessage(
         failedResults.length > 0
@@ -351,7 +384,7 @@ export default function LibraryScreen() {
         await deleteSource(sourceId);
       }
       await removeCachedSource(sourceId);
-      setSources((current) => current.filter((source) => source.id !== sourceId));
+      setSources((current) => dedupeSources(current.filter((source) => source.id !== sourceId)));
       setAssets((current) => current.filter((asset) => asset.sourceId !== sourceId));
       setUploadMessage('Upload deleted.');
     } catch (error) {
@@ -374,13 +407,6 @@ export default function LibraryScreen() {
           <ThemedText type="small">
             We’ll read it and make summaries, notes, flashcards, and quizzes.
           </ThemedText>
-          <View style={styles.previewWrap}>
-            {generationPreview.map((item) => (
-              <ThemedView key={item} type="backgroundElement" style={styles.previewPill}>
-                <ThemedText type="smallBold">{item}</ThemedText>
-              </ThemedView>
-            ))}
-          </View>
           <View style={styles.metadataGrid}>
             <View style={styles.inputGroup}>
               <ThemedText type="smallBold">Subject</ThemedText>
@@ -680,16 +706,6 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     gap: Spacing.one,
     padding: Spacing.four,
-  },
-  previewWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  previewPill: {
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
   },
   metadataGrid: {
     flexDirection: 'row',
