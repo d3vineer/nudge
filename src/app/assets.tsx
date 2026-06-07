@@ -7,7 +7,6 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { hasSupabaseConfig } from '@/lib/env';
 import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
-import { getFixtureAssets, getFixtureSources } from '@/lib/parsing/fixtures';
 import { refreshParsingState } from '@/lib/parsing/pipeline';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -56,11 +55,25 @@ function sourceTopicLabel(source?: SourceRecord) {
   return [source.subject, source.topic].filter(Boolean).join(' - ');
 }
 
+function subjectFor(source?: SourceRecord) {
+  return source?.subject?.trim() || 'Unsorted';
+}
+
+function topicFor(source?: SourceRecord) {
+  return source?.topic?.trim() || 'General';
+}
+
+function sourceForAsset(asset: GeneratedAssetRecord, sources: SourceRecord[]) {
+  return sources.find((source) => source.id === asset.sourceId);
+}
+
 export default function AssetsScreen() {
   const theme = useTheme();
   const isDark = theme.background === '#07111F';
   const [assets, setAssets] = useState<GeneratedAssetRecord[]>([]);
   const [sources, setSources] = useState<SourceRecord[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [selectedTopic, setSelectedTopic] = useState('');
   const [selectedAssetId, setSelectedAssetId] = useState<string>('');
   const [assetView, setAssetView] = useState<AssetView>('summary');
   const [statusText, setStatusText] = useState('Loading study tools...');
@@ -72,8 +85,8 @@ export default function AssetsScreen() {
       listCachedSources(),
       listCachedAssets(),
     ]);
-    const localAssets = cachedAssets.length > 0 ? cachedAssets : getFixtureAssets();
-    const localSources = cachedSources.length > 0 ? cachedSources : getFixtureSources();
+    const localAssets = cachedAssets;
+    const localSources = cachedSources;
 
     setAssets(localAssets);
     setSources(localSources);
@@ -81,7 +94,7 @@ export default function AssetsScreen() {
     setStatusText(
       cachedAssets.length > 0
         ? 'Showing saved study tools.'
-        : 'Showing demo assets until real uploads finish.'
+        : 'No generated study tools yet.'
     );
 
     if (!hasSupabaseConfig()) {
@@ -90,11 +103,11 @@ export default function AssetsScreen() {
 
     try {
       const remoteState = await refreshParsingState();
-      const nextAssets = remoteState.assets.length > 0 ? remoteState.assets : localAssets;
+      const nextAssets = remoteState.assets;
       setAssets(nextAssets);
-      setSources(remoteState.sources.length > 0 ? remoteState.sources : localSources);
+      setSources(remoteState.sources);
       setSelectedAssetId((current) => current || nextAssets[0]?.id || '');
-      setStatusText('Updated from Supabase.');
+      setStatusText(nextAssets.length > 0 ? 'Updated from Supabase.' : 'No generated study tools yet.');
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : 'Could not update study tools.');
     }
@@ -104,11 +117,59 @@ export default function AssetsScreen() {
     loadAssets();
   }, [loadAssets]);
 
+  const groupedAssets = useMemo(() => {
+    const groups = new Map<string, Map<string, GeneratedAssetRecord[]>>();
+
+    assets.forEach((asset) => {
+      const source = sourceForAsset(asset, sources);
+      const subject = subjectFor(source);
+      const topic = topicFor(source);
+      const subjectGroup = groups.get(subject) ?? new Map<string, GeneratedAssetRecord[]>();
+      subjectGroup.set(topic, [...(subjectGroup.get(topic) ?? []), asset]);
+      groups.set(subject, subjectGroup);
+    });
+
+    return groups;
+  }, [assets, sources]);
+
+  const subjects = useMemo(() => [...groupedAssets.keys()].sort(), [groupedAssets]);
+  const activeSubject = selectedSubject && groupedAssets.has(selectedSubject) ? selectedSubject : subjects[0] ?? '';
+  const topics = useMemo(
+    () => [...(groupedAssets.get(activeSubject)?.keys() ?? [])].sort(),
+    [activeSubject, groupedAssets]
+  );
+  const activeTopic = selectedTopic && groupedAssets.get(activeSubject)?.has(selectedTopic)
+    ? selectedTopic
+    : topics[0] ?? '';
+  const visibleAssets = useMemo(
+    () => groupedAssets.get(activeSubject)?.get(activeTopic) ?? [],
+    [activeSubject, activeTopic, groupedAssets]
+  );
+
   const selectedAsset = useMemo(
-    () => assets.find((asset) => asset.id === selectedAssetId) ?? assets[0],
-    [assets, selectedAssetId]
+    () =>
+      visibleAssets.find((asset) => asset.id === selectedAssetId) ??
+      visibleAssets[0] ??
+      assets.find((asset) => asset.id === selectedAssetId) ??
+      assets[0],
+    [assets, selectedAssetId, visibleAssets]
   );
   const selectedSource = sources.find((source) => source.id === selectedAsset?.sourceId);
+
+  useEffect(() => {
+    if (!activeSubject || selectedSubject === activeSubject) return;
+    setSelectedSubject(activeSubject);
+  }, [activeSubject, selectedSubject]);
+
+  useEffect(() => {
+    if (!activeTopic || selectedTopic === activeTopic) return;
+    setSelectedTopic(activeTopic);
+  }, [activeTopic, selectedTopic]);
+
+  useEffect(() => {
+    if (!selectedAsset?.id || selectedAsset.id === selectedAssetId) return;
+    setSelectedAssetId(selectedAsset.id);
+  }, [selectedAsset?.id, selectedAssetId]);
 
   function toggleCard(cardKey: string) {
     setRevealedCards((current) => ({
@@ -131,10 +192,65 @@ export default function AssetsScreen() {
       subtitle="Summaries, notes, flashcards, and quizzes made from your materials.">
       <View style={styles.grid}>
         <StudyCard style={styles.sourcePanel}>
-          <SectionHeader title="Materials" detail={statusText} />
+          <SectionHeader title="Choose Subject" detail={statusText} />
           <ActionButton label="Refresh" variant="secondary" onPress={loadAssets} />
-          {assets.map((asset) => {
-            const source = sources.find((item) => item.id === asset.sourceId);
+          <View style={styles.selectorStack}>
+            <View style={styles.optionWrap}>
+              {subjects.map((subject) => {
+                const isSelected = subject === activeSubject;
+
+                return (
+                  <Pressable
+                    key={subject}
+                    onPress={() => {
+                      setSelectedSubject(subject);
+                      setSelectedTopic('');
+                      setSelectedAssetId('');
+                    }}
+                    style={({ pressed }) => pressed && styles.pressed}>
+                    <ThemedView
+                      type={isSelected ? 'backgroundSelected' : 'backgroundElement'}
+                      style={[
+                        styles.selectorPill,
+                        { borderColor: isSelected ? theme.primary : theme.hairline },
+                      ]}>
+                      <ThemedText type="smallBold">{subject}</ThemedText>
+                    </ThemedView>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <SectionHeader title="Choose Topic" />
+            <View style={styles.optionWrap}>
+              {topics.map((topic) => {
+                const isSelected = topic === activeTopic;
+
+                return (
+                  <Pressable
+                    key={topic}
+                    onPress={() => {
+                      setSelectedTopic(topic);
+                      setSelectedAssetId('');
+                    }}
+                    style={({ pressed }) => pressed && styles.pressed}>
+                    <ThemedView
+                      type={isSelected ? 'backgroundSelected' : 'backgroundElement'}
+                      style={[
+                        styles.selectorPill,
+                        { borderColor: isSelected ? theme.primary : theme.hairline },
+                      ]}>
+                      <ThemedText type="smallBold">{topic}</ThemedText>
+                    </ThemedView>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <SectionHeader title="Choose Asset" />
+          </View>
+          {visibleAssets.map((asset) => {
+            const source = sourceForAsset(asset, sources);
             const isSelected = asset.id === selectedAsset?.id;
 
             return (
@@ -183,7 +299,7 @@ export default function AssetsScreen() {
                   <ThemedText type="caption" themeColor="textSecondary">
                     {sourceTopicLabel(selectedSource) ?? sourceType(selectedSource)}
                   </ThemedText>
-                  <ThemedText type="sectionTitle">{selectedAsset.title}</ThemedText>
+                  <ThemedText type="subtitle">{selectedAsset.title}</ThemedText>
                 </View>
                 <ThemedView type="backgroundElement" style={styles.modelPill}>
                   <ThemedText type="smallBold">Study pack</ThemedText>
@@ -292,6 +408,12 @@ export default function AssetsScreen() {
                                   type={isSelected ? 'backgroundSelected' : 'card'}
                                   style={[
                                     styles.choicePill,
+                                    {
+                                      backgroundColor: isSelected
+                                        ? theme.backgroundSelected
+                                        : theme.backgroundElement,
+                                      borderColor: isSelected ? theme.primary : theme.hairline,
+                                    },
                                     isSelected && {
                                       borderColor: isCorrect ? theme.success : theme.error,
                                     },
@@ -342,11 +464,13 @@ const styles = StyleSheet.create({
   },
   sourcePanel: {
     flexGrow: 1,
-    flexBasis: 320,
+    flexBasis: 280,
+    minWidth: 0,
   },
   contentPanel: {
     flexGrow: 2,
-    flexBasis: 540,
+    flexBasis: 320,
+    minWidth: 0,
   },
   pressed: {
     opacity: 0.72,
@@ -356,14 +480,31 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderCurve: 'continuous',
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
+    alignItems: 'flex-start',
+    gap: Spacing.two,
     justifyContent: 'space-between',
-    padding: Spacing.three,
+    padding: Spacing.four,
+    minWidth: 0,
   },
   sourceCopy: {
     flex: 1,
+    minWidth: 0,
     gap: Spacing.one,
+  },
+  selectorStack: {
+    gap: Spacing.three,
+  },
+  optionWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  selectorPill: {
+    borderCurve: 'continuous',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
   },
   readinessPill: {
     borderRadius: 999,
@@ -371,16 +512,14 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
   },
   contentHeader: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: Spacing.three,
-    justifyContent: 'space-between',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
   },
   modelPill: {
     borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
   tabRow: {
     flexDirection: 'row',
@@ -389,14 +528,15 @@ const styles = StyleSheet.create({
   },
   assetTab: {
     borderRadius: 999,
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
   },
   summaryCard: {
-    borderRadius: 28,
+    borderRadius: 22,
     borderCurve: 'continuous',
     gap: Spacing.two,
     padding: Spacing.four,
+    minWidth: 0,
   },
   summaryGlow: {
     backgroundColor: 'rgba(184, 164, 237, 0.22)',
@@ -409,12 +549,12 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   noteRow: {
-    borderRadius: 22,
+    borderRadius: 18,
     borderCurve: 'continuous',
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.three,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   indexBadge: {
     width: 32,
@@ -425,6 +565,7 @@ const styles = StyleSheet.create({
   },
   flexText: {
     flex: 1,
+    minWidth: 0,
   },
   cardGrid: {
     flexDirection: 'row',
@@ -432,37 +573,40 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   flashcard: {
-    borderRadius: 28,
+    borderRadius: 22,
     borderCurve: 'continuous',
     gap: Spacing.three,
     minHeight: 220,
-    padding: Spacing.three,
+    minWidth: 0,
+    padding: Spacing.four,
   },
   flashcardPressable: {
     flexGrow: 1,
-    flexBasis: 240,
+    flexBasis: 220,
+    minWidth: 0,
   },
   answerBox: {
     borderRadius: 20,
     borderCurve: 'continuous',
     marginTop: 'auto',
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   quizCard: {
-    borderRadius: 28,
+    borderRadius: 22,
     borderCurve: 'continuous',
     gap: Spacing.three,
-    padding: Spacing.three,
+    minWidth: 0,
+    padding: Spacing.four,
   },
   choiceList: {
-    gap: Spacing.two,
+    gap: Spacing.three,
   },
   choicePill: {
     borderWidth: 1,
-    borderColor: 'transparent',
-    borderRadius: 18,
+    borderRadius: 20,
     borderCurve: 'continuous',
-    padding: Spacing.three,
+    minHeight: 64,
+    padding: Spacing.four,
   },
   resultPill: {
     alignSelf: 'flex-start',

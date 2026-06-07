@@ -87,15 +87,17 @@ export function SectionHeader({ title, detail }: { title: string; detail?: strin
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 28,
+    borderRadius: 24,
     borderCurve: 'continuous',
     padding: Spacing.four,
     gap: Spacing.three,
+    minWidth: 0,
   },
   button: {
+    flexShrink: 1,
     minHeight: 44,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.twoHalf,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
     borderRadius: 999,
     borderCurve: 'continuous',
     borderWidth: 1,
@@ -104,6 +106,7 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     backgroundColor: 'transparent',
-    gap: Spacing.half,
+    gap: Spacing.one,
+    paddingBottom: Spacing.one,
   },
 });

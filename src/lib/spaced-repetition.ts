@@ -130,15 +130,16 @@ export function interleaveReviewQueue(cards: ReviewCard[], now = new Date()) {
   });
   const remaining = [...dueFirst];
   const mixed: ReviewCard[] = [];
+  let previousCourse = '';
   let previousTopic = '';
 
   while (remaining.length > 0) {
-    const nextIndex = Math.max(
-      0,
-      remaining.findIndex((card) => card.topic !== previousTopic)
-    );
+    const differentCourseIndex = remaining.findIndex((card) => card.course !== previousCourse);
+    const differentTopicIndex = remaining.findIndex((card) => card.topic !== previousTopic);
+    const nextIndex = differentCourseIndex >= 0 ? differentCourseIndex : Math.max(0, differentTopicIndex);
     const [nextCard] = remaining.splice(nextIndex, 1);
     mixed.push(nextCard);
+    previousCourse = nextCard.course;
     previousTopic = nextCard.topic;
   }
 

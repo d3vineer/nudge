@@ -1,4 +1,5 @@
 import {
+  getDueState,
   getRetrievability,
   type ReviewCard,
 } from '@/lib/spaced-repetition';
@@ -20,9 +21,40 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+export function calculateAverageRecall(cards: ReviewCard[], now = new Date()) {
+  if (cards.length === 0) return 0;
+
+  return cards.reduce((sum, card) => sum + getRetrievability(card, now), 0) / cards.length;
+}
+
+export function calculateAverageDifficulty(cards: ReviewCard[]) {
+  if (cards.length === 0) return 0;
+
+  return cards.reduce((sum, card) => sum + card.difficulty, 0) / cards.length;
+}
+
+export function calculateDashboardReviewMetrics(cards: ReviewCard[], now = new Date()) {
+  const averageRecall = calculateAverageRecall(cards, now);
+  const averageDifficulty = calculateAverageDifficulty(cards);
+  const dueCount = cards.filter((card) => getDueState(card, now)).length;
+  const lowRecallRisk = (1 - averageRecall) * 55;
+  const overdueRisk = Math.min(dueCount * 8, 30);
+  const difficultyRisk = averageDifficulty * 1.5;
+  const riskToday = cards.length === 0
+    ? 0
+    : clamp(Math.round(lowRecallRisk + overdueRisk + difficultyRisk), 0, 100);
+
+  return {
+    averageDifficulty,
+    averageRecall,
+    dueCount,
+    riskToday,
+  };
+}
+
 function topicMasteryScore(cards: ReviewCard[], now: Date) {
-  const averageRecall = cards.reduce((sum, card) => sum + getRetrievability(card, now), 0) / Math.max(cards.length, 1);
-  const averageDifficulty = cards.reduce((sum, card) => sum + card.difficulty, 0) / Math.max(cards.length, 1);
+  const averageRecall = calculateAverageRecall(cards, now);
+  const averageDifficulty = calculateAverageDifficulty(cards);
   const averageStability = cards.reduce((sum, card) => sum + Math.min(card.stability, 30) / 30, 0) / Math.max(cards.length, 1);
 
   return clamp(Math.round(averageRecall * 68 + averageStability * 20 + (1 - averageDifficulty / 10) * 12), 1, 99);
@@ -62,8 +94,7 @@ export function detectWeakTopics(cards: ReviewCard[], now = new Date()) {
     .map((topic) => {
       const topicCards = cards.filter((card) => card.topic === topic.topic);
       const overdue = topicCards.filter((card) => new Date(card.dueAt).getTime() <= now.getTime()).length;
-      const averageDifficulty =
-        topicCards.reduce((sum, card) => sum + card.difficulty, 0) / Math.max(topicCards.length, 1);
+      const averageDifficulty = calculateAverageDifficulty(topicCards);
 
       return {
         ...topic,

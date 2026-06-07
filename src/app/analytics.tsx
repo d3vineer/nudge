@@ -5,9 +5,10 @@ import { SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { initialReviewCards } from '@/constants/review-cards';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { buildReviewCardsFromGeneratedAssets, mergeReviewCardsWithGeneratedCards } from '@/lib/generated-review-cards';
+import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import {
   buildMasteryByTopic,
   buildRetentionCurve,
@@ -29,7 +30,7 @@ function pct(value: number) {
 export default function AnalyticsScreen() {
   const theme = useTheme();
   const isDark = theme.background === '#07111F';
-  const [reviewCards, setReviewCards] = useState<ReviewCard[]>(initialReviewCards);
+  const [reviewCards, setReviewCards] = useState<ReviewCard[]>([]);
   const [sessions, setSessions] = useState<FocusSessionRecord[]>([]);
   const now = useMemo(() => new Date(), [reviewCards, sessions]);
   const retentionCurve = useMemo(() => buildRetentionCurve(reviewCards, now), [reviewCards, now]);
@@ -44,11 +45,10 @@ export default function AnalyticsScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    loadStudyState().then((state) => {
+    Promise.all([loadStudyState(), listCachedSources(), listCachedAssets()]).then(([state, sources, assets]) => {
       if (!isMounted) return;
-      if (state.reviewCards.length > 0) {
-        setReviewCards(state.reviewCards);
-      }
+      const generatedCards = buildReviewCardsFromGeneratedAssets(assets, sources);
+      setReviewCards(mergeReviewCardsWithGeneratedCards(state.reviewCards, generatedCards));
       setSessions(state.sessions);
     });
 
@@ -87,6 +87,30 @@ export default function AnalyticsScreen() {
           </ThemedText>
         </StudyCard>
       </View>
+
+      <StudyCard style={styles.quickReadCard}>
+        <SectionHeader title="Quick Read" detail="The shortest useful version." />
+        <View style={styles.quickReadGrid}>
+          <ThemedView type="backgroundElement" style={styles.quickReadItem}>
+            <ThemedText type="smallBold">Retention is {pct(currentRetention)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Projected to settle near {pct(weekRetention)} without extra reviews.
+            </ThemedText>
+          </ThemedView>
+          <ThemedView type="backgroundElement" style={styles.quickReadItem}>
+            <ThemedText type="smallBold">{weakTopics[0]?.topic ?? 'No weak topic yet'} needs attention</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {weakTopics[0] ? 'Mix it into the next short review block.' : 'Generate flashcards to unlock weak-topic detection.'}
+            </ThemedText>
+          </ThemedView>
+          <ThemedView type="backgroundElement" style={styles.quickReadItem}>
+            <ThemedText type="smallBold">{reviewLoad.today} cards due today</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Keep the load light and consistent.
+            </ThemedText>
+          </ThemedView>
+        </View>
+      </StudyCard>
 
       <View style={styles.grid}>
         <StudyCard style={styles.panel}>
@@ -136,43 +160,61 @@ export default function AnalyticsScreen() {
       <View style={styles.grid}>
         <StudyCard style={styles.panel}>
           <SectionHeader title="Mastery by Topic" detail="Based on recall, stability, and difficulty." />
-          {masteryByTopic.map((item, index) => (
-            <View key={item.topic} style={styles.masteryRow}>
-              <View style={styles.masteryLabel}>
-                <ThemedText type="smallBold">{item.topic}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {item.value}%
-                </ThemedText>
+          {masteryByTopic.length > 0 ? (
+            masteryByTopic.map((item, index) => (
+              <View key={item.topic} style={styles.masteryRow}>
+                <View style={styles.masteryLabel}>
+                  <ThemedText type="smallBold">{item.topic}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {item.value}%
+                  </ThemedText>
+                </View>
+                <ThemedView type="backgroundElement" style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        backgroundColor: accentColors[index % accentColors.length],
+                        width: `${item.value}%`,
+                      },
+                    ]}
+                  />
+                </ThemedView>
               </View>
-              <ThemedView type="backgroundElement" style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      backgroundColor: accentColors[index % accentColors.length],
-                      width: `${item.value}%`,
-                    },
-                  ]}
-                />
-              </ThemedView>
-            </View>
-          ))}
+            ))
+          ) : (
+            <ThemedView type="backgroundElement" style={styles.emptyState}>
+              <ThemedText type="smallBold">No mastery data yet</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Upload or seed PDFs, then generate flashcards to see topic progress.
+              </ThemedText>
+            </ThemedView>
+          )}
         </StudyCard>
 
         <StudyCard style={styles.panel}>
           <SectionHeader title="Weak Topics" detail="Practice these soon." />
-          {weakTopics.map((item, index) => (
-            <ThemedView key={item.topic} type="backgroundElement" style={styles.weakRow}>
-              <View style={[styles.riskDot, { backgroundColor: accentColors[index % accentColors.length] }]} />
-              <View style={styles.flexCopy}>
-                <ThemedText type="smallBold">{item.topic}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {item.overdue} due - difficulty {item.averageDifficulty.toFixed(1)}
-                </ThemedText>
-              </View>
-              <ThemedText type="smallBold">{item.risk}</ThemedText>
+          {weakTopics.length > 0 ? (
+            weakTopics.map((item, index) => (
+              <ThemedView key={item.topic} type="backgroundElement" style={styles.weakRow}>
+                <View style={[styles.riskDot, { backgroundColor: accentColors[index % accentColors.length] }]} />
+                <View style={styles.flexCopy}>
+                  <ThemedText type="smallBold">{item.topic}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {item.overdue} due - difficulty {item.averageDifficulty.toFixed(1)}
+                  </ThemedText>
+                </View>
+                <ThemedText type="smallBold">{item.risk}</ThemedText>
+              </ThemedView>
+            ))
+          ) : (
+            <ThemedView type="backgroundElement" style={styles.emptyState}>
+              <ThemedText type="smallBold">No weak topics yet</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Weak topics appear after flashcards are ready.
+              </ThemedText>
             </ThemedView>
-          ))}
+          )}
         </StudyCard>
       </View>
 
@@ -226,8 +268,9 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   summaryCard: {
-    flexBasis: 260,
+    flexBasis: 180,
     flexGrow: 1,
+    minWidth: 0,
   },
   blueLiftCard: {
     backgroundColor: 'rgba(184, 164, 237, 0.22)',
@@ -247,8 +290,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(164, 212, 197, 0.12)',
   },
   panel: {
-    flexBasis: 460,
+    flexBasis: 320,
     flexGrow: 1,
+    minWidth: 0,
+  },
+  quickReadCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+  },
+  quickReadGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  quickReadItem: {
+    borderCurve: 'continuous',
+    borderRadius: 18,
+    flexBasis: 180,
+    flexGrow: 1,
+    gap: Spacing.one,
+    padding: Spacing.three,
   },
   curveRow: {
     alignItems: 'flex-end',
@@ -259,7 +319,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     gap: Spacing.one,
-    minWidth: 42,
+    minWidth: 32,
   },
   curveTrack: {
     borderRadius: 999,
@@ -281,9 +341,9 @@ const styles = StyleSheet.create({
   loadTile: {
     borderRadius: 22,
     borderCurve: 'continuous',
-    flexBasis: 132,
+    flexBasis: 104,
     flexGrow: 1,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   masteryRow: {
     gap: Spacing.two,
@@ -308,7 +368,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     flexDirection: 'row',
     gap: Spacing.three,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   riskDot: {
     borderRadius: 999,
@@ -318,11 +378,18 @@ const styles = StyleSheet.create({
   flexCopy: {
     flex: 1,
     gap: Spacing.one,
+    minWidth: 0,
+  },
+  emptyState: {
+    borderCurve: 'continuous',
+    borderRadius: 18,
+    gap: Spacing.one,
+    padding: Spacing.four,
   },
   consistencyHeader: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.four,
+    gap: Spacing.three,
   },
   sessionBars: {
     alignItems: 'flex-end',
@@ -333,7 +400,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     gap: Spacing.one,
-    minWidth: 42,
+    minWidth: 32,
   },
   sessionTrack: {
     borderRadius: 999,

@@ -1,4 +1,4 @@
-import { Platform, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native';
+import { Platform, ScrollView, StyleSheet, useWindowDimensions, View, type ScrollViewProps } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -14,6 +14,9 @@ type StudyScreenProps = ScrollViewProps & {
 
 export function StudyScreen({ eyebrow, title, subtitle, children, ...props }: StudyScreenProps) {
   const theme = useTheme();
+  const { width } = useWindowDimensions();
+  const titleLength = title.length;
+  const isCompact = width < 520;
   const isDark = theme.background === '#07111F';
   const backgroundStyle = Platform.select({
     web: {
@@ -28,19 +31,38 @@ export function StudyScreen({ eyebrow, title, subtitle, children, ...props }: St
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       style={[styles.scrollView, { backgroundColor: theme.background }, backgroundStyle]}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, isCompact && styles.contentCompact]}
       {...props}>
-      <View style={styles.center}>
-        <ThemedView style={styles.header}>
-          <ThemedText type="caption" themeColor="textSecondary">
-            {eyebrow}
-          </ThemedText>
-          <ThemedText type="title">{title}</ThemedText>
-          <ThemedText type="default" themeColor="textSecondary" style={styles.subtitle}>
-            {subtitle}
-          </ThemedText>
-        </ThemedView>
-        {children}
+      <View
+        style={[
+          styles.frame,
+          {
+            borderColor: theme.hairline,
+            backgroundColor: isDark ? 'rgba(7, 17, 31, 0.42)' : 'rgba(255, 255, 255, 0.34)',
+          },
+          isCompact && styles.frameCompact,
+        ]}>
+        <View style={[styles.center, isCompact && styles.centerCompact]}>
+          <ThemedView style={[styles.header, isCompact && styles.headerCompact]}>
+            <ThemedText type="caption" themeColor="textSecondary">
+              {eyebrow}
+            </ThemedText>
+            <ThemedText
+              type="title"
+              style={[
+                styles.title,
+                isCompact && styles.titleCompact,
+                titleLength > 22 && styles.titleLong,
+                titleLength > 34 && styles.titleVeryLong,
+              ]}>
+              {title}
+            </ThemedText>
+            <ThemedText type="default" themeColor="textSecondary" style={styles.subtitle}>
+              {subtitle}
+            </ThemedText>
+          </ThemedView>
+          {children}
+        </View>
       </View>
     </ScrollView>
   );
@@ -56,17 +78,57 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.four,
     paddingBottom: BottomTabInset + Spacing.five,
   },
+  frame: {
+    borderCurve: 'continuous',
+    borderRadius: 32,
+    borderWidth: 1,
+    maxWidth: MaxContentWidth + Spacing.four,
+    minWidth: 0,
+    padding: Spacing.four,
+    width: '100%',
+  },
+  frameCompact: {
+    borderRadius: 26,
+    padding: Spacing.three,
+  },
+  contentCompact: {
+    paddingHorizontal: Spacing.two,
+    paddingTop: Spacing.three,
+  },
   center: {
     width: '100%',
     maxWidth: MaxContentWidth,
-    gap: Spacing.three,
+    gap: Spacing.five,
+    minWidth: 0,
+  },
+  centerCompact: {
+    gap: Spacing.four,
   },
   header: {
     backgroundColor: 'transparent',
-    gap: Spacing.one,
+    gap: Spacing.two,
     maxWidth: 760,
+  },
+  headerCompact: {
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.one,
   },
   subtitle: {
     maxWidth: 680,
+  },
+  title: {
+    flexShrink: 1,
+  },
+  titleCompact: {
+    fontSize: 32,
+    lineHeight: 36,
+  },
+  titleLong: {
+    fontSize: 34,
+    lineHeight: 39,
+  },
+  titleVeryLong: {
+    fontSize: 30,
+    lineHeight: 35,
   },
 });

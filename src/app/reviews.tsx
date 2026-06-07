@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -5,9 +6,10 @@ import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card'
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { initialReviewCards } from '@/constants/review-cards';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { buildReviewCardsFromGeneratedAssets, mergeReviewCardsWithGeneratedCards } from '@/lib/generated-review-cards';
+import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import {
   formatDueDate,
   getElapsedDays,
@@ -38,10 +40,14 @@ function gradeColor(grade: RecallGrade, theme: ReturnType<typeof useTheme>) {
 
 export default function ReviewsScreen() {
   const theme = useTheme();
-  const [cards, setCards] = useState<ReviewCard[]>(initialReviewCards);
-  const [activeCardId, setActiveCardId] = useState(initialReviewCards[0].id);
+  const router = useRouter();
+  const [cards, setCards] = useState<ReviewCard[]>([]);
+  const [activeCardId, setActiveCardId] = useState('');
   const [isAnswerVisible, setIsAnswerVisible] = useState(false);
   const [lastReviewed, setLastReviewed] = useState<ReviewCard | null>(null);
+  const [reviewedCount, setReviewedCount] = useState(0);
+  const [sessionTarget, setSessionTarget] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
   const now = useMemo(() => new Date(), [cards]);
   const queue = useMemo(() => interleaveReviewQueue(cards, now), [cards, now]);
   const activeCard = cards.find((card) => card.id === activeCardId) ?? queue[0];
@@ -53,10 +59,15 @@ export default function ReviewsScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    loadReviewCards().then((storedCards) => {
-      if (!isMounted || storedCards.length === 0) return;
-      setCards(storedCards);
-      setActiveCardId((current) => storedCards.find((card) => card.id === current)?.id ?? storedCards[0].id);
+    Promise.all([loadReviewCards(), listCachedSources(), listCachedAssets()]).then(([storedCards, sources, assets]) => {
+      if (!isMounted) return;
+      const generatedCards = buildReviewCardsFromGeneratedAssets(assets, sources);
+      const nextCards = mergeReviewCardsWithGeneratedCards(storedCards, generatedCards);
+      setCards(nextCards);
+      setActiveCardId((current) => nextCards.find((card) => card.id === current)?.id ?? nextCards[0]?.id ?? '');
+      if (storedCards.length === 0 && nextCards.length > 0) {
+        saveReviewCards(nextCards);
+      }
     });
 
     return () => {
@@ -72,17 +83,94 @@ export default function ReviewsScreen() {
   function gradeActiveCard(grade: RecallGrade) {
     if (!activeCard) return;
 
+    const target = sessionTarget || Math.max(1, dueCount || queue.length);
+    const nextReviewedCount = reviewedCount + 1;
     const reviewedCard = reviewCard(activeCard, grade, new Date());
     const nextCards = cards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card));
     setCards(nextCards);
     saveReviewCards(nextCards);
     setLastReviewed(reviewedCard);
+    setReviewedCount(nextReviewedCount);
+    setSessionTarget(target);
     setIsAnswerVisible(false);
+
+    if (nextReviewedCount >= target) {
+      setIsComplete(true);
+      return;
+    }
 
     const nextCard = interleaveReviewQueue(nextCards, new Date()).find((card) => card.id !== reviewedCard.id);
     if (nextCard) {
       setActiveCardId(nextCard.id);
     }
+  }
+
+  function restartReview() {
+    const nextQueue = interleaveReviewQueue(cards, new Date());
+    setReviewedCount(0);
+    setSessionTarget(Math.max(1, dueCount || nextQueue.length));
+    setIsComplete(false);
+    setIsAnswerVisible(false);
+    setActiveCardId(nextQueue[0]?.id ?? cards[0]?.id ?? '');
+  }
+
+  if (isComplete) {
+    return (
+      <StudyScreen
+        eyebrow="Review"
+        title="Session complete"
+        subtitle="Nice work. Your schedule has been updated from today’s recall grades.">
+        <StudyCard style={styles.completeCard}>
+          <View style={[styles.trophyMark, { backgroundColor: theme.brandMint }]}>
+            <ThemedText type="metric" style={{ color: '#0F172A' }}>
+              {reviewedCount}
+            </ThemedText>
+          </View>
+          <ThemedText type="subtitle">Cards reviewed</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Average recall is now {percent(averageRecall)}. Keep the next session short and mixed.
+          </ThemedText>
+          <View style={styles.completeStats}>
+            <ThemedView type="backgroundElement" style={styles.completeStat}>
+              <ThemedText type="caption" themeColor="textSecondary">Recall</ThemedText>
+              <ThemedText type="smallBold">{percent(averageRecall)}</ThemedText>
+            </ThemedView>
+            <ThemedView type="backgroundElement" style={styles.completeStat}>
+              <ThemedText type="caption" themeColor="textSecondary">Topics</ThemedText>
+              <ThemedText type="smallBold">{new Set(cards.map((card) => card.topic)).size}</ThemedText>
+            </ThemedView>
+            <ThemedView type="backgroundElement" style={styles.completeStat}>
+              <ThemedText type="caption" themeColor="textSecondary">Due left</ThemedText>
+              <ThemedText type="smallBold">{dueCount}</ThemedText>
+            </ThemedView>
+          </View>
+          <View style={styles.gradeGrid}>
+            <ActionButton label="Study more" onPress={restartReview} />
+            <ActionButton label="Dashboard" variant="secondary" onPress={() => router.push('/')} />
+          </View>
+        </StudyCard>
+      </StudyScreen>
+    );
+  }
+
+  if (!activeCard) {
+    return (
+      <StudyScreen
+        eyebrow="Review"
+        title="No review cards yet"
+        subtitle="Once your PDFs finish processing, Nudge will turn their flashcards into your review queue.">
+        <StudyCard style={styles.emptyHistory}>
+          <ThemedText type="sectionTitle">Nothing due right now</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Add or seed study materials, then open Study tools after the AI pack is ready.
+          </ThemedText>
+          <View style={styles.gradeGrid}>
+            <ActionButton label="Add material" onPress={() => router.push('/library')} />
+            <ActionButton label="Study tools" variant="secondary" onPress={() => router.push('/assets')} />
+          </View>
+        </StudyCard>
+      </StudyScreen>
+    );
   }
 
   return (
@@ -107,9 +195,9 @@ export default function ReviewsScreen() {
         </StudyCard>
         <StudyCard style={[styles.summaryCard, { backgroundColor: 'rgba(232, 185, 74, 0.18)' }]}>
           <ThemedText type="caption">Mix</ThemedText>
-          <ThemedText type="metric">{new Set(queue.map((card) => card.topic)).size}</ThemedText>
+          <ThemedText type="metric">{new Set(queue.map((card) => card.course)).size}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            topics interleaved
+            subjects interleaved
           </ThemedText>
         </StudyCard>
       </View>
@@ -198,7 +286,7 @@ export default function ReviewsScreen() {
           </StudyCard>
 
           <StudyCard style={styles.sidePanel}>
-            <SectionHeader title="Interleaved Queue" detail="Mixed by topic." />
+            <SectionHeader title="Interleaved Queue" detail="Mixed by subject and topic." />
             {queue.map((card, index) => {
               const isActive = card.id === activeCard.id;
               const recall = getRetrievability(card, now);
@@ -288,8 +376,9 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   summaryCard: {
-    flexBasis: 240,
+    flexBasis: 180,
     flexGrow: 1,
+    minWidth: 0,
   },
   reviewGrid: {
     flexDirection: 'row',
@@ -297,12 +386,14 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   activeCard: {
-    flexBasis: 560,
+    flexBasis: 320,
     flexGrow: 2,
+    minWidth: 0,
   },
   sidePanel: {
-    flexBasis: 320,
+    flexBasis: 280,
     flexGrow: 1,
+    minWidth: 0,
   },
   cardHeader: {
     alignItems: 'flex-start',
@@ -314,7 +405,7 @@ const styles = StyleSheet.create({
   flexCopy: {
     flex: 1,
     gap: Spacing.one,
-    minWidth: 220,
+    minWidth: 0,
   },
   topicPill: {
     borderRadius: 999,
@@ -332,13 +423,13 @@ const styles = StyleSheet.create({
     flexBasis: 132,
     flexGrow: 1,
     gap: Spacing.half,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   answerPanel: {
     borderRadius: 24,
     borderCurve: 'continuous',
     gap: Spacing.two,
-    minHeight: 180,
+    minHeight: 132,
     justifyContent: 'center',
     padding: Spacing.four,
   },
@@ -352,7 +443,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderWidth: 1,
     minWidth: 116,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   pressed: {
     opacity: 0.72,
@@ -363,8 +454,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderWidth: 1,
     flexDirection: 'row',
-    gap: Spacing.three,
-    padding: Spacing.three,
+    gap: Spacing.two,
+    padding: Spacing.four,
   },
   queueIndex: {
     alignItems: 'center',
@@ -380,7 +471,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.three,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   historyItem: {
     flexBasis: 160,
@@ -391,6 +482,29 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderCurve: 'continuous',
     gap: Spacing.one,
+    padding: Spacing.four,
+  },
+  completeCard: {
+    alignItems: 'flex-start',
+  },
+  trophyMark: {
+    alignItems: 'center',
+    borderRadius: 28,
+    height: 86,
+    justifyContent: 'center',
+    width: 86,
+  },
+  completeStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    width: '100%',
+  },
+  completeStat: {
+    borderRadius: 18,
+    borderCurve: 'continuous',
+    flexBasis: 96,
+    flexGrow: 1,
     padding: Spacing.three,
   },
 });

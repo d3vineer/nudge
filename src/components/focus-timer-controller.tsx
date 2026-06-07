@@ -39,6 +39,7 @@ export const sessionModes: SessionMode[] = [
 type FocusTimerContextValue = {
   accentColor: string;
   completeCurrentPhase: (autoAdvance?: boolean) => void;
+  endSession: () => void;
   isRunning: boolean;
   lastCompletedSession: FocusSessionRecord | null;
   phase: SessionPhase;
@@ -114,6 +115,12 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     setRemainingSeconds(secondsFor(selectedMode, 'study'));
   }
 
+  function endSession() {
+    setIsRunning(false);
+    setPhase('study');
+    setRemainingSeconds(secondsFor(selectedMode, 'study'));
+  }
+
   function completeCurrentPhase(autoAdvance = false) {
     const completedMinutes = phase === 'study' ? selectedMode.studyMinutes : selectedMode.breakMinutes;
     const completedSession: FocusSessionRecord = {
@@ -143,6 +150,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     () => ({
       accentColor,
       completeCurrentPhase,
+      endSession,
       isRunning,
       lastCompletedSession,
       phase,
@@ -188,10 +196,18 @@ export function useFocusTimer() {
 }
 
 function FloatingFocusTimer() {
-  const pathname = usePathname();
+    const pathname = usePathname();
   const router = useRouter();
   const theme = useTheme();
-  const { accentColor, isRunning, phaseLabel, remainingSeconds, selectedMode } = useFocusTimer();
+  const {
+    accentColor,
+    endSession,
+    isRunning,
+    phaseLabel,
+    remainingSeconds,
+    selectedMode,
+    setIsRunning,
+  } = useFocusTimer();
 
   if (!isRunning || pathname === '/study') return null;
 
@@ -215,6 +231,26 @@ function FloatingFocusTimer() {
             {selectedMode.name} - {phaseLabel}
           </ThemedText>
         </View>
+        <View style={[styles.timerActions, { borderColor: theme.hairline }]}>
+          <Pressable
+            accessibilityLabel={isRunning ? 'Pause timer' : 'Resume timer'}
+            onPress={(event) => {
+              event.stopPropagation?.();
+              setIsRunning((current) => !current);
+            }}
+            style={({ pressed }) => [styles.timerActionButton, pressed && styles.pressed]}>
+            <ThemedText type="smallBold">{isRunning ? 'Pause' : 'Run'}</ThemedText>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="End timer"
+            onPress={(event) => {
+              event.stopPropagation?.();
+              endSession();
+            }}
+            style={({ pressed }) => [styles.timerActionButton, pressed && styles.pressed]}>
+            <ThemedText type="smallBold">End</ThemedText>
+          </Pressable>
+        </View>
       </ThemedView>
     </Pressable>
   );
@@ -234,7 +270,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: Spacing.two,
-    maxWidth: 260,
+    maxWidth: 340,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
@@ -248,5 +284,17 @@ const styles = StyleSheet.create({
   },
   timerCopy: {
     gap: Spacing.half,
+  },
+  timerActions: {
+    borderLeftWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing.one,
+    marginLeft: Spacing.one,
+    paddingLeft: Spacing.two,
+  },
+  timerActionButton: {
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
 });

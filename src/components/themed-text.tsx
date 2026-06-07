@@ -26,7 +26,7 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
   return (
     <Text
       style={[
-        { color: theme[themeColor ?? 'text'] },
+        { color: theme[themeColor ?? 'text'], flexShrink: 1 },
         type === 'default' && styles.default,
         type === 'title' && styles.title,
         type === 'small' && styles.small,
@@ -67,26 +67,26 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: Fonts.serif,
-    fontSize: 48,
+    fontSize: 38,
     fontWeight: 400,
-    lineHeight: 54,
+    lineHeight: 43,
   },
   subtitle: {
     fontFamily: Fonts.sans,
-    fontSize: 24,
-    lineHeight: 32,
+    fontSize: 21,
+    lineHeight: 28,
     fontWeight: 600,
   },
   sectionTitle: {
     fontFamily: Fonts.mono,
-    fontSize: 18,
-    lineHeight: 25,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: 600,
   },
   metric: {
     fontFamily: Fonts.mono,
-    fontSize: 32,
-    lineHeight: 38,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: 600,
     fontVariant: ['tabular-nums'],
   },

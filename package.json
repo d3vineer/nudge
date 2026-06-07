@@ -5,6 +5,7 @@
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
+    "seed-study-pdfs": "node ./scripts/seed-study-pdfs.mjs",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
@@ -18,7 +19,7 @@
     "expo-constants": "~55.0.16",
     "expo-device": "~55.0.17",
     "expo-document-picker": "~55.0.13",
-    "expo-file-system": "~55.0.21",
+    "expo-file-system": "~55.0.22",
     "expo-font": "~55.0.8",
     "expo-glass-effect": "~55.0.11",
     "expo-image": "~55.0.10",

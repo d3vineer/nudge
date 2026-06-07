@@ -55,14 +55,6 @@ export default function AppTabs() {
           26
         </NativeTabs.Trigger.Badge>
       </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="analytics">
-        <NativeTabs.Trigger.Label>Analytics</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          sf={{ default: 'chart.line.uptrend.xyaxis', selected: 'chart.line.uptrend.xyaxis' }}
-          md="insights"
-        />
-      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }

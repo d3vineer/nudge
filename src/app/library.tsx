@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
@@ -9,12 +9,66 @@ import { ThemedView } from '@/components/themed-view';
 import { hasSupabaseConfig } from '@/lib/env';
 import { listCachedAssets, listCachedSources, removeCachedSource } from '@/lib/parsing/cache';
 import { pickStudyFiles } from '@/lib/parsing/document-picker';
-import { getFixtureAssets, getFixtureSources } from '@/lib/parsing/fixtures';
 import { refreshParsingState, uploadAndProcessFiles } from '@/lib/parsing/pipeline';
 import { deleteSource, startProcessing } from '@/lib/parsing/supabase-api';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
+
+const generationPreview = [
+  'Summary',
+  'Notes',
+  'Flashcards',
+  'Quiz',
+  'Weak topics',
+  'Review queue',
+];
+
+const commonSubjects = [
+  'Biology',
+  'Chemistry',
+  'Physics',
+  'Math',
+  'History',
+  'Literature',
+  'Finance',
+  'Computer Science',
+  'Psychology',
+  'Economics',
+  'General',
+];
+
+const subjectKeywordMap: Array<{ keywords: string[]; subject: string }> = [
+  { keywords: ['biology', 'cell', 'genetics', 'reproduction', 'neural', 'organism'], subject: 'Biology' },
+  { keywords: ['chemistry', 'molecule', 'reaction', 'acid', 'base', 'organic'], subject: 'Chemistry' },
+  { keywords: ['physics', 'force', 'motion', 'energy', 'wave', 'electricity'], subject: 'Physics' },
+  { keywords: ['math', 'calculus', 'algebra', 'geometry', 'derivative', 'integral'], subject: 'Math' },
+  { keywords: ['history', 'source', 'empire', 'war', 'revolution', 'civilization'], subject: 'History' },
+  { keywords: ['literature', 'poem', 'novel', 'theme', 'character', 'essay'], subject: 'Literature' },
+  { keywords: ['finance', 'market', 'trading', 'defi', 'liquidity', 'portfolio'], subject: 'Finance' },
+  { keywords: ['code', 'programming', 'algorithm', 'database', 'software', 'computer'], subject: 'Computer Science' },
+  { keywords: ['psychology', 'memory', 'attention', 'behavior', 'cognition'], subject: 'Psychology' },
+  { keywords: ['economics', 'supply', 'demand', 'inflation', 'gdp', 'trade'], subject: 'Economics' },
+];
+
+function uniqueValues(values: string[]) {
+  const seen = new Set<string>();
+
+  return values.filter((value) => {
+    const normalized = value.trim();
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function inferSubjectSuggestions(text: string) {
+  const normalized = text.toLowerCase();
+  return subjectKeywordMap
+    .filter((item) => item.keywords.some((keyword) => normalized.includes(keyword)))
+    .map((item) => item.subject);
+}
 
 function formatSize(size?: number) {
   if (!size) {
@@ -113,10 +167,16 @@ function mergeRemoteWithLocalDiagnostics(remoteSources: SourceRecord[], localSou
 export default function LibraryScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 520;
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [assets, setAssets] = useState<GeneratedAssetRecord[]>([]);
   const [subject, setSubject] = useState('');
+  const [isSubjectPickerOpen, setIsSubjectPickerOpen] = useState(false);
+  const [isCustomSubjectOpen, setIsCustomSubjectOpen] = useState(false);
   const [topic, setTopic] = useState('');
+  const [pastedText, setPastedText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isBusy, setIsBusy] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(
     hasSupabaseConfig()
@@ -130,8 +190,8 @@ export default function LibraryScreen() {
       listCachedAssets(),
     ]);
 
-    setSources(cachedSources.length > 0 ? cachedSources : getFixtureSources());
-    setAssets(cachedAssets.length > 0 ? cachedAssets : getFixtureAssets());
+    setSources(cachedSources);
+    setAssets(cachedAssets);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -173,6 +233,54 @@ export default function LibraryScreen() {
   const parsingCount = sources.filter(
     (source) => source.status === 'queued' || source.status === 'uploading' || source.status === 'processing'
   ).length;
+  const subjectOptions = useMemo(() => {
+    const existingSubjects = sources.map((source) => source.subject ?? '');
+    const suggestionText = [
+      topic,
+      pastedText,
+      searchQuery,
+      ...sources.map((source) => `${source.title} ${source.topic ?? ''}`),
+    ].join(' ');
+
+    return uniqueValues([
+      ...inferSubjectSuggestions(suggestionText),
+      ...existingSubjects,
+      ...commonSubjects,
+    ]).slice(0, 16);
+  }, [pastedText, searchQuery, sources, topic]);
+  const filteredSources = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return sources;
+
+    return sources.filter((source) =>
+      [source.title, source.subject ?? '', source.topic ?? '', inferType(source)]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [searchQuery, sources]);
+
+  function makeTextFile() {
+    const text = pastedText.trim();
+    if (text.length < 50) return null;
+
+    const title = `${topic.trim() || subject.trim() || 'Pasted notes'}.txt`;
+    if (typeof File !== 'undefined') {
+      return {
+        file: new File([text], title, { type: 'text/plain' }),
+        mimeType: 'text/plain',
+        name: title,
+        size: text.length,
+      };
+    }
+
+    return {
+      mimeType: 'text/plain',
+      name: title,
+      size: text.length,
+      uri: `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`,
+    };
+  }
 
   async function chooseFiles() {
     if (!hasSupabaseConfig()) {
@@ -183,21 +291,30 @@ export default function LibraryScreen() {
     setIsBusy(true);
     try {
       const files = await pickStudyFiles();
-      if (files.length === 0) {
-        setUploadMessage('No files selected.');
+      const textFile = makeTextFile();
+      const uploadFiles = textFile ? [...files, textFile] : files;
+
+      if (uploadFiles.length === 0) {
+        setUploadMessage(
+          pastedText.trim().length > 0
+            ? 'Paste at least 50 characters, or choose a file.'
+            : 'No files selected.'
+        );
         return;
       }
 
-      const results = await uploadAndProcessFiles(files, {
+      const results = await uploadAndProcessFiles(uploadFiles, {
         subject: subject.trim(),
         topic: topic.trim(),
       });
+      setIsSubjectPickerOpen(false);
+      setIsCustomSubjectOpen(false);
       setSources((current) => [...results.map((result) => result.source), ...current]);
       const failedResults = results.filter((result) => result.source.status === 'failed');
       setUploadMessage(
         failedResults.length > 0
           ? failedResults[0].source.error ?? 'Upload succeeded, but processing did not start.'
-          : `${files.length} source${files.length === 1 ? '' : 's'} uploaded and queued.`
+          : `${uploadFiles.length} source${uploadFiles.length === 1 ? '' : 's'} uploaded and queued.`
       );
       if (failedResults.length === 0) {
         await refresh();
@@ -250,29 +367,99 @@ export default function LibraryScreen() {
       title="Add your study materials"
       subtitle="Upload notes, PDFs, slides, or docs. Nudge turns them into study tools.">
       <View style={styles.grid}>
-        <StudyCard style={[styles.uploadCard, { backgroundColor: theme.brandMint }]}>
+        <StudyCard style={[styles.uploadCard, styles.uploadSurface, isCompact && styles.uploadCardCompact]}>
+          <View style={[styles.accentStrip, { backgroundColor: theme.brandMint }]} />
           <ThemedText type="caption">Upload</ThemedText>
           <ThemedText type="subtitle">Choose a file</ThemedText>
           <ThemedText type="small">
             We’ll read it and make summaries, notes, flashcards, and quizzes.
           </ThemedText>
+          <View style={styles.previewWrap}>
+            {generationPreview.map((item) => (
+              <ThemedView key={item} type="backgroundElement" style={styles.previewPill}>
+                <ThemedText type="smallBold">{item}</ThemedText>
+              </ThemedView>
+            ))}
+          </View>
           <View style={styles.metadataGrid}>
             <View style={styles.inputGroup}>
               <ThemedText type="smallBold">Subject</ThemedText>
-              <TextInput
-                value={subject}
-                onChangeText={setSubject}
-                placeholder="Biology"
-                placeholderTextColor={theme.textSecondary}
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: theme.card,
-                    borderColor: theme.hairline,
-                    color: theme.text,
-                  },
-                ]}
-              />
+              <Pressable
+                onPress={() => setIsSubjectPickerOpen((current) => !current)}
+                style={({ pressed }) => pressed && styles.pressed}>
+                <ThemedView
+                  style={[
+                    styles.subjectSelect,
+                    {
+                      backgroundColor: theme.card,
+                      borderColor: isSubjectPickerOpen ? theme.primary : theme.hairline,
+                    },
+                  ]}>
+                  <ThemedText
+                    type="smallBold"
+                    style={!subject ? { color: theme.textSecondary } : undefined}>
+                    {subject || 'Choose subject'}
+                  </ThemedText>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                    {isSubjectPickerOpen ? 'Close' : 'Pick'}
+                  </ThemedText>
+                </ThemedView>
+              </Pressable>
+              {isSubjectPickerOpen && (
+                <ThemedView type="backgroundElement" style={styles.subjectPanel}>
+                  <View style={styles.subjectChipGrid}>
+                    {subjectOptions.map((option) => {
+                      const isSelected = option.toLowerCase() === subject.trim().toLowerCase();
+
+                      return (
+                        <Pressable
+                          key={option}
+                          onPress={() => {
+                            setSubject(option);
+                            setIsCustomSubjectOpen(false);
+                            setIsSubjectPickerOpen(false);
+                          }}
+                          style={({ pressed }) => pressed && styles.pressed}>
+                          <ThemedView
+                            type={isSelected ? 'backgroundSelected' : 'card'}
+                            style={[
+                              styles.subjectChip,
+                              { borderColor: isSelected ? theme.primary : theme.hairline },
+                            ]}>
+                            <ThemedText type="smallBold">{option}</ThemedText>
+                          </ThemedView>
+                        </Pressable>
+                      );
+                    })}
+                    <Pressable
+                      onPress={() => setIsCustomSubjectOpen((current) => !current)}
+                      style={({ pressed }) => pressed && styles.pressed}>
+                      <ThemedView
+                        type="card"
+                        style={[styles.subjectChip, { borderColor: theme.primary }]}>
+                        <ThemedText type="smallBold">Custom</ThemedText>
+                      </ThemedView>
+                    </Pressable>
+                  </View>
+                  {isCustomSubjectOpen && (
+                    <TextInput
+                      value={subject}
+                      onChangeText={setSubject}
+                      placeholder="Type a subject"
+                      placeholderTextColor={theme.textSecondary}
+                      style={[
+                        styles.textInput,
+                        {
+                          backgroundColor: theme.card,
+                          borderColor: theme.hairline,
+                          color: theme.text,
+                        },
+                      ]}
+                      returnKeyType="done"
+                    />
+                  )}
+                </ThemedView>
+              )}
             </View>
             <View style={styles.inputGroup}>
               <ThemedText type="smallBold">Topic</ThemedText>
@@ -289,6 +476,7 @@ export default function LibraryScreen() {
                     color: theme.text,
                   },
                 ]}
+                returnKeyType="done"
               />
             </View>
           </View>
@@ -298,18 +486,37 @@ export default function LibraryScreen() {
               {uploadMessage}
             </ThemedText>
           </ThemedView>
+          <View style={styles.inputGroup}>
+            <ThemedText type="smallBold">Paste notes instead</ThemedText>
+            <TextInput
+              multiline
+              value={pastedText}
+              onChangeText={setPastedText}
+              placeholder="Paste lecture notes or textbook text here..."
+              placeholderTextColor={theme.textSecondary}
+              style={[
+                styles.textArea,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.hairline,
+                  color: theme.text,
+                },
+              ]}
+            />
+          </View>
           <View style={styles.buttonRow}>
             <ActionButton
               label={isBusy ? 'Uploading...' : 'Choose file'}
               onPress={chooseFiles}
             />
             <ActionButton label="Refresh" variant="secondary" onPress={refresh} />
-            <ActionButton
-              label="View study tools"
-              variant="secondary"
-              onPress={() => router.push('/assets')}
-            />
           </View>
+          <ActionButton
+            label="View study tools"
+            variant="secondary"
+            style={styles.fullWidthAction}
+            onPress={() => router.push('/assets')}
+          />
         </StudyCard>
 
         <StudyCard style={styles.statusCard}>
@@ -339,11 +546,39 @@ export default function LibraryScreen() {
 
       <StudyCard>
         <SectionHeader title="Recent Uploads" detail="See what is ready." />
-        {sources.map((source) => {
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search by title, subject, or topic"
+          placeholderTextColor={theme.textSecondary}
+          style={[
+            styles.textInput,
+            {
+              backgroundColor: theme.card,
+              borderColor: theme.hairline,
+              color: theme.text,
+            },
+          ]}
+        />
+        {filteredSources.length === 0 ? (
+          <ThemedView type="backgroundElement" style={styles.emptyState}>
+            <ThemedText type="smallBold">
+              {sources.length === 0 ? 'Your library is empty' : 'No matching uploads'}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {sources.length === 0
+                ? 'Upload a file or paste notes to create your first study pack.'
+                : 'Try a different title, subject, or topic.'}
+            </ThemedText>
+          </ThemedView>
+        ) : filteredSources.map((source) => {
           const sourceAssets = countAssets(source, assets);
 
           return (
-            <ThemedView key={source.id} type="backgroundElement" style={styles.sourceRow}>
+            <ThemedView
+              key={source.id}
+              type="backgroundElement"
+              style={[styles.sourceRow, isCompact && styles.sourceRowCompact]}>
               <View style={styles.sourceCopy}>
                 <ThemedText type="smallBold">{source.title}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
@@ -382,15 +617,17 @@ export default function LibraryScreen() {
                 </ThemedView>
               </View>
               <View style={styles.sourceMeta}>
-                <ThemedView
-                  type={source.status === 'ready' ? 'backgroundSelected' : 'cardStrong'}
-                  style={styles.statusPill}>
-                  <ThemedText type="smallBold">{stageLabel(source)}</ThemedText>
-                </ThemedView>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {sourceAssets.notes} notes / {sourceAssets.flashcards} cards /{' '}
-                  {sourceAssets.quizzes} quizzes
-                </ThemedText>
+                <View style={styles.sourceMetaTop}>
+                  <ThemedView
+                    type={source.status === 'ready' ? 'backgroundSelected' : 'cardStrong'}
+                    style={styles.statusPill}>
+                    <ThemedText type="smallBold">{stageLabel(source)}</ThemedText>
+                  </ThemedView>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {sourceAssets.notes} notes / {sourceAssets.flashcards} cards /{' '}
+                    {sourceAssets.quizzes} quizzes
+                  </ThemedText>
+                </View>
                 {(source.status === 'failed' || source.status === 'needs_ocr') && (
                   <ActionButton
                     label={source.status === 'needs_ocr' ? 'Retry OCR' : 'Retry'}
@@ -420,15 +657,39 @@ const styles = StyleSheet.create({
   },
   uploadCard: {
     flexGrow: 2,
-    flexBasis: 440,
+    flexBasis: 320,
+    minWidth: 0,
+    overflow: 'hidden',
+  },
+  uploadCardCompact: {
+    gap: Spacing.three,
+  },
+  uploadSurface: {
+    backgroundColor: 'rgba(255, 255, 255, 0.86)',
+    boxShadow: '0 20px 56px rgba(96, 165, 250, 0.12), 0 0 42px rgba(164, 212, 197, 0.18)',
+  },
+  accentStrip: {
+    borderRadius: 999,
+    height: 6,
+    width: 92,
   },
   uploadDropzone: {
     borderWidth: 1,
-    borderRadius: 28,
+    borderRadius: 22,
     borderCurve: 'continuous',
     borderStyle: 'dashed',
     gap: Spacing.one,
-    padding: Spacing.three,
+    padding: Spacing.four,
+  },
+  previewWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  previewPill: {
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
   metadataGrid: {
     flexDirection: 'row',
@@ -436,9 +697,41 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   inputGroup: {
-    flexBasis: 180,
+    flexBasis: 150,
     flexGrow: 1,
+    minWidth: 0,
     gap: Spacing.one,
+  },
+  subjectSelect: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing.two,
+    justifyContent: 'space-between',
+    minHeight: 50,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    width: '100%',
+  },
+  subjectPanel: {
+    borderRadius: 18,
+    borderCurve: 'continuous',
+    gap: Spacing.two,
+    padding: Spacing.two,
+  },
+  subjectChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+  },
+  subjectChip: {
+    borderCurve: 'continuous',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
   textInput: {
     borderCurve: 'continuous',
@@ -450,10 +743,25 @@ const styles = StyleSheet.create({
     minHeight: 50,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
+    width: '100%',
+  },
+  textArea: {
+    borderCurve: 'continuous',
+    borderRadius: 18,
+    borderWidth: 1,
+    fontFamily: 'Plus Jakarta Sans, sans-serif',
+    fontSize: 15,
+    fontWeight: '600',
+    minHeight: 112,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    textAlignVertical: 'top',
+    width: '100%',
   },
   statusCard: {
     flexGrow: 1,
-    flexBasis: 300,
+    flexBasis: 260,
+    minWidth: 0,
   },
   assetGrid: {
     gap: Spacing.three,
@@ -461,25 +769,32 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.two,
+    gap: Spacing.three,
+  },
+  fullWidthAction: {
+    alignSelf: 'flex-start',
   },
   assetRow: {
     gap: Spacing.one,
   },
   sourceRow: {
-    borderRadius: 24,
+    borderRadius: 20,
     borderCurve: 'continuous',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: Spacing.three,
-    justifyContent: 'space-between',
-    padding: Spacing.three,
+    justifyContent: 'flex-start',
+    padding: Spacing.four,
+    minWidth: 0,
+  },
+  sourceRowCompact: {
+    padding: Spacing.four,
   },
   sourceCopy: {
     flex: 1,
-    minWidth: 260,
-    gap: Spacing.two,
+    minWidth: 0,
+    gap: Spacing.three,
   },
   progressTrack: {
     height: 10,
@@ -502,12 +817,28 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
   },
   sourceMeta: {
-    alignItems: 'flex-end',
-    gap: Spacing.two,
+    alignItems: 'flex-start',
+    gap: Spacing.three,
+    minWidth: 0,
+    width: '100%',
+  },
+  sourceMetaTop: {
+    alignItems: 'flex-start',
+    flexDirection: 'column',
+    gap: Spacing.one,
+  },
+  emptyState: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    gap: Spacing.one,
+    padding: Spacing.four,
   },
   statusPill: {
     borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  pressed: {
+    opacity: 0.78,
   },
 });

@@ -41,7 +41,6 @@ export default function StudySessionScreen() {
   const [sessionLog, setSessionLog] = useState<FocusSessionRecord[]>([]);
   const nextPhaseLabel = phase === 'study' ? 'break' : 'next focus block';
   const isDark = theme.background === '#07111F';
-  const selectedCardText = isDark ? '#FFFFFF' : '#0F172A';
 
   useEffect(() => {
     let isMounted = true;
@@ -74,7 +73,6 @@ export default function StudySessionScreen() {
         {sessionModes.map((mode) => {
           const isSelected = mode.id === selectedMode.id;
           const surfaceColor = mode.id === 'pomodoro' ? theme.brandPink : theme.brandTeal;
-          const textColor = selectedCardText;
 
           return (
             <StudyCard
@@ -82,32 +80,36 @@ export default function StudySessionScreen() {
               style={[
                 styles.modeCard,
                 {
-                  backgroundColor: isSelected ? surfaceColor : theme.card,
+                  backgroundColor: theme.card,
                   borderColor: isSelected ? surfaceColor : theme.hairline,
+                  boxShadow: isSelected
+                    ? `0 22px 52px ${mode.id === 'pomodoro' ? 'rgba(255, 77, 139, 0.16)' : 'rgba(164, 212, 197, 0.18)'}`
+                    : undefined,
                 },
               ]}>
+              <View style={[styles.modeAccent, { backgroundColor: surfaceColor }]} />
               <View style={styles.cardTopRow}>
                 <View style={styles.modeCopy}>
                   <ThemedText
                     type="caption"
-                    style={isSelected ? { color: textColor } : undefined}>
+                    style={isSelected ? { color: theme.text } : undefined}>
                     {mode.name}
                   </ThemedText>
                   <ThemedText
                     type="metric"
-                    style={isSelected ? { color: textColor } : undefined}>
+                    style={isSelected ? { color: theme.text } : undefined}>
                     {mode.studyMinutes}/{mode.breakMinutes}
                   </ThemedText>
                 </View>
                 {isSelected ? (
-                  <ThemedView style={[styles.selectedPill, { backgroundColor: 'rgba(255, 255, 255, 0.78)' }]}>
+                  <ThemedView style={[styles.selectedPill, { backgroundColor: theme.backgroundSelected }]}>
                     <ThemedText type="smallBold" style={{ color: '#0F172A' }}>Selected</ThemedText>
                   </ThemedView>
                 ) : null}
               </View>
               <ThemedText
                 type="small"
-                style={isSelected ? { color: textColor } : undefined}
+                style={isSelected ? { color: theme.textSecondary } : undefined}
                 themeColor={isSelected ? undefined : 'textSecondary'}>
                 {mode.description}
               </ThemedText>
@@ -233,9 +235,16 @@ const styles = StyleSheet.create({
   },
   modeCard: {
     flexGrow: 1,
-    flexBasis: 340,
-    minHeight: 250,
+    flexBasis: 280,
+    minHeight: 206,
+    minWidth: 0,
     justifyContent: 'space-between',
+    overflow: 'hidden',
+  },
+  modeAccent: {
+    borderRadius: 999,
+    height: 6,
+    width: 86,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -264,7 +273,8 @@ const styles = StyleSheet.create({
   },
   timerPanel: {
     flexGrow: 2,
-    flexBasis: 460,
+    flexBasis: 320,
+    minWidth: 0,
   },
   timerGlowCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.84)',
@@ -275,8 +285,8 @@ const styles = StyleSheet.create({
     boxShadow: '0 28px 80px rgba(96, 165, 250, 0.2), 0 0 70px rgba(184, 164, 237, 0.16)',
   },
   timerText: {
-    fontSize: 76,
-    lineHeight: 84,
+    fontSize: 52,
+    lineHeight: 58,
     color: '#0F172A',
   },
   timerDarkText: {
@@ -299,7 +309,8 @@ const styles = StyleSheet.create({
   },
   sidePanel: {
     flexGrow: 1,
-    flexBasis: 320,
+    flexBasis: 280,
+    minWidth: 0,
   },
   planRow: {
     backgroundColor: 'transparent',
@@ -319,7 +330,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderCurve: 'continuous',
     gap: Spacing.one,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   logRow: {
     borderRadius: 22,
@@ -328,7 +339,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.three,
-    padding: Spacing.three,
+    padding: Spacing.four,
   },
   logCopy: {
     flex: 1,

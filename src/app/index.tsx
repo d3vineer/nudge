@@ -1,49 +1,123 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import {
-  dailyQueue,
-  retentionInsights,
-  sources,
-  studyBlocks,
-  weakTopics,
-} from '@/constants/study-flow';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { buildReviewCardsFromGeneratedAssets, mergeReviewCardsWithGeneratedCards } from '@/lib/generated-review-cards';
+import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
+import { formatDueDate, getDueState, getRetrievability, type ReviewCard } from '@/lib/spaced-repetition';
+import { calculateDashboardReviewMetrics, detectWeakTopics, getStudyStreak } from '@/lib/study-analytics';
+import { loadFocusSessions, loadReviewCards } from '@/lib/study-state';
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function riskMessage(risk: number) {
+  if (risk < 35) return 'You’re in a good spot after recent reviews.';
+  if (risk < 70) return 'A short review will help keep things fresh.';
+  return 'Some cards are slipping. Start with a quick review.';
+}
 
 export default function DashboardScreen() {
   const theme = useTheme();
   const router = useRouter();
   const isDark = theme.background === '#07111F';
-  const totalDueCards = dailyQueue.reduce((sum, item) => sum + Number.parseInt(item.due, 10), 0);
-  const readySources = sources.filter((source) => source.progress === 100).length;
+  const [hasRealMaterials, setHasRealMaterials] = useState(false);
+  const [hasReviewState, setHasReviewState] = useState(false);
+  const [reviewCards, setReviewCards] = useState<ReviewCard[]>([]);
+  const [studyStreak, setStudyStreak] = useState(0);
+  const hasStudyPlan = hasRealMaterials || hasReviewState;
+  const reviewMetrics = useMemo(
+    () => calculateDashboardReviewMetrics(reviewCards),
+    [reviewCards]
+  );
+  const dueReviewCards = useMemo(
+    () =>
+      reviewCards
+        .filter((card) => getDueState(card))
+        .sort((first, second) => getRetrievability(first) - getRetrievability(second))
+        .slice(0, 3),
+    [reviewCards]
+  );
+  const weakTopicItems = useMemo(() => detectWeakTopics(reviewCards), [reviewCards]);
+  const studyBlocks = useMemo(
+    () => [
+      {
+        focus: dueReviewCards[0]?.course ?? 'Add study material',
+        label: 'First review',
+        state: dueReviewCards[0] ? 'Due' : 'Ready',
+        time: 'Now',
+      },
+      {
+        focus: dueReviewCards[1]?.course ?? 'Read notes',
+        label: 'Short recall',
+        state: dueReviewCards[1] ? 'Due' : 'Optional',
+        time: 'Later',
+      },
+      {
+        focus: dueReviewCards[2]?.course ?? 'Try a quiz',
+        label: 'Mixed practice',
+        state: dueReviewCards[2] ? 'Light' : 'Optional',
+        time: 'Evening',
+      },
+    ],
+    [dueReviewCards]
+  );
+
+  useFocusEffect(useCallback(() => {
+    let isMounted = true;
+    Promise.all([listCachedSources(), listCachedAssets(), loadReviewCards(), loadFocusSessions()]).then(([cachedSources, cachedAssets, storedCards, sessions]) => {
+      if (!isMounted) return;
+      setHasRealMaterials(cachedSources.some((source) => !source.id.startsWith('fixture-')));
+      const generatedCards = buildReviewCardsFromGeneratedAssets(cachedAssets, cachedSources);
+      const nextCards = mergeReviewCardsWithGeneratedCards(storedCards, generatedCards);
+      setHasReviewState(nextCards.length > 0);
+      setReviewCards(nextCards);
+      setStudyStreak(getStudyStreak(sessions));
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []));
 
   return (
     <StudyScreen
       eyebrow="Today"
-      title="Your study plan is ready"
-      subtitle="A simple queue for what to review, read, and focus on next.">
+      title={hasStudyPlan ? 'Your study plan is ready' : 'Start with one study material'}
+      subtitle={
+        hasStudyPlan
+          ? 'A simple queue for what to review, read, and focus on next.'
+          : 'Upload a PDF, slide deck, image, or pasted notes. Nudge will turn it into a study pack.'
+      }>
       <View style={styles.heroGrid}>
         <StudyCard style={[styles.heroCard, styles.heroGlowCard, isDark && styles.heroGlowCardDark]}>
           <ThemedText type="caption" style={{ color: theme.primary }}>
-            Risk today
+            {hasStudyPlan ? 'Risk today' : 'First step'}
           </ThemedText>
           <ThemedText type="metric">
-            23%
+            {hasStudyPlan ? `${reviewMetrics.riskToday}%` : 'Upload'}
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            You are in a good spot after recent reviews.
+            {hasStudyPlan
+              ? riskMessage(reviewMetrics.riskToday)
+              : 'Create summaries, notes, flashcards, quizzes, and a review queue from one source.'}
           </ThemedText>
           <View style={styles.buttonRow}>
-            <ActionButton label="Start review" onPress={() => router.push('/reviews')} />
             <ActionButton
-              label="Add material"
+              label={hasStudyPlan ? 'Start review' : 'Add first material'}
+              onPress={() => router.push(hasStudyPlan ? '/reviews' : '/library')}
+            />
+            <ActionButton
+              label={hasStudyPlan ? 'Add material' : 'See study tools'}
               variant="secondary"
-              onPress={() => router.push('/library')}
+              onPress={() => router.push(hasStudyPlan ? '/library' : '/assets')}
             />
           </View>
         </StudyCard>
@@ -51,18 +125,18 @@ export default function DashboardScreen() {
         <View style={styles.metricGrid}>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandLavender }]}>
             <ThemedText type="caption">Review</ThemedText>
-            <ThemedText type="metric">{totalDueCards}</ThemedText>
+            <ThemedText type="metric">{reviewMetrics.dueCount}</ThemedText>
             <ThemedText type="small">cards due now</ThemedText>
           </StudyCard>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandPeach }]}>
-            <ThemedText type="caption">Focus</ThemedText>
-            <ThemedText type="metric">50</ThemedText>
-            <ThemedText type="small">minutes suggested</ThemedText>
+            <ThemedText type="caption">Recall</ThemedText>
+            <ThemedText type="metric">{formatPercent(reviewMetrics.averageRecall)}</ThemedText>
+            <ThemedText type="small">average right now</ThemedText>
           </StudyCard>
           <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandMint }]}>
-            <ThemedText type="caption">Materials</ThemedText>
-            <ThemedText type="metric">{readySources}/{sources.length}</ThemedText>
-            <ThemedText type="small">ready to study</ThemedText>
+            <ThemedText type="caption">Streak</ThemedText>
+            <ThemedText type="metric">{studyStreak}</ThemedText>
+            <ThemedText type="small">active day{studyStreak === 1 ? '' : 's'}</ThemedText>
           </StudyCard>
         </View>
       </View>
@@ -70,28 +144,32 @@ export default function DashboardScreen() {
       <View style={styles.grid}>
         <StudyCard style={[styles.column, styles.playfulPanel, isDark && styles.playfulPanelDark]}>
           <SectionHeader title="Today’s Queue" detail="Start with these." />
-          {dailyQueue.map((item) => (
-            <ThemedView key={item.title} style={styles.queueItem}>
-              <View
-                style={[
-                  styles.accentDot,
-                  { backgroundColor: theme[item.accent as keyof typeof theme] },
-                ]}
-              />
-              <View style={styles.queueCopy}>
-                <ThemedText type="smallBold">{item.title}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {item.course} - {item.difficulty}
-                </ThemedText>
-              </View>
-              <View style={styles.queueMeta}>
-                <ThemedText type="smallBold">{item.due}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {item.dueTime}
-                </ThemedText>
-              </View>
+          {dueReviewCards.length > 0 ? (
+            dueReviewCards.map((item) => (
+              <ThemedView key={item.id} style={styles.queueItem}>
+                <View style={[styles.accentDot, { backgroundColor: theme.brandPink }]} />
+                <View style={styles.queueCopy}>
+                  <ThemedText type="smallBold">{item.topic}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {item.course} - difficulty {item.difficulty.toFixed(1)}
+                  </ThemedText>
+                </View>
+                <View style={styles.queueMeta}>
+                  <ThemedText type="smallBold">1 card</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {formatDueDate(item.dueAt)}
+                  </ThemedText>
+                </View>
+              </ThemedView>
+            ))
+          ) : (
+            <ThemedView type="backgroundElement" style={styles.emptyPanel}>
+              <ThemedText type="smallBold">No reviews due yet</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Seed or upload materials to build your first queue.
+              </ThemedText>
             </ThemedView>
-          ))}
+          )}
         </StudyCard>
 
         <StudyCard style={[styles.column, styles.playfulPanelAlt, isDark && styles.playfulPanelAltDark]}>
@@ -116,7 +194,15 @@ export default function DashboardScreen() {
       <View style={styles.grid}>
         <StudyCard style={[styles.column, styles.playfulPanelAlt, isDark && styles.playfulPanelAltDark]}>
           <SectionHeader title="Notes From Nudge" detail="Small things to keep in mind." />
-          {retentionInsights.map((insight) => (
+          {[
+            reviewCards.length > 0
+              ? 'Your review mix now comes from generated flashcards.'
+              : 'Upload or seed PDFs to generate summaries, notes, cards, and quizzes.',
+            'Alternating subjects can make recall practice more durable.',
+            studyStreak > 0
+              ? `You have a ${studyStreak}-day study streak.`
+              : 'Complete a focus block to start your streak.',
+          ].map((insight) => (
             <ThemedView key={insight} style={styles.insightRow}>
               <View style={[styles.accentDot, { backgroundColor: theme.brandCoral }]} />
               <ThemedText type="smallBold" style={styles.insightText}>
@@ -129,7 +215,7 @@ export default function DashboardScreen() {
         <StudyCard style={[styles.column, styles.playfulPanel, isDark && styles.playfulPanelDark]}>
           <SectionHeader title="Needs Practice" detail="Mix these into your next session." />
           <View style={styles.topicWrap}>
-            {weakTopics.map((topic) => (
+            {(weakTopicItems.length > 0 ? weakTopicItems.map((item) => item.topic) : ['No weak topics yet']).map((topic) => (
               <ThemedView key={topic} type="backgroundElement" style={styles.topicPill}>
                 <ThemedText type="smallBold">{topic}</ThemedText>
               </ThemedView>
@@ -149,7 +235,8 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     flexGrow: 2,
-    flexBasis: 440,
+    flexBasis: 320,
+    minWidth: 0,
   },
   heroGlowCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.84)',
@@ -161,11 +248,12 @@ const styles = StyleSheet.create({
   },
   metricGrid: {
     flexGrow: 1,
-    flexBasis: 300,
-    gap: Spacing.three,
+    flexBasis: 260,
+    gap: Spacing.two,
+    minWidth: 0,
   },
   metricCard: {
-    minHeight: 148,
+    minHeight: 116,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -179,7 +267,8 @@ const styles = StyleSheet.create({
   },
   column: {
     flexGrow: 1,
-    flexBasis: 360,
+    flexBasis: 300,
+    minWidth: 0,
   },
   playfulPanel: {
     backgroundColor: 'rgba(184, 164, 237, 0.16)',
@@ -197,7 +286,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: Spacing.two,
     paddingVertical: Spacing.two,
   },
   accentDot: {
@@ -208,6 +297,7 @@ const styles = StyleSheet.create({
   },
   queueCopy: {
     flex: 1,
+    minWidth: 0,
     gap: Spacing.one,
   },
   queueMeta: {
@@ -219,8 +309,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
-    padding: Spacing.three,
+    gap: Spacing.two,
+    padding: Spacing.four,
   },
   statusPill: {
     borderRadius: 999,
@@ -236,6 +326,7 @@ const styles = StyleSheet.create({
   },
   insightText: {
     flex: 1,
+    minWidth: 0,
   },
   topicWrap: {
     flexDirection: 'row',
@@ -246,5 +337,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
+  },
+  emptyPanel: {
+    borderCurve: 'continuous',
+    borderRadius: 18,
+    gap: Spacing.one,
+    padding: Spacing.four,
   },
 });

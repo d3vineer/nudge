@@ -148,6 +148,10 @@ function ThemeToggle({ compact }: { compact: boolean }) {
 
 const styles = StyleSheet.create({
   tabListContainer: {
+    bottom: 0,
+    left: 0,
+    position: 'fixed',
+    right: 0,
     width: '100%',
     padding: Spacing.two,
     justifyContent: 'center',
@@ -169,9 +173,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    flexGrow: 1,
+    flex: 1,
     gap: Spacing.one,
     maxWidth: MaxContentWidth,
+    minWidth: 0,
     backdropFilter: 'blur(22px)',
   },
   brandLockup: {
@@ -209,10 +214,10 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   tabButtonViewCompact: {
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: Spacing.one,
   },
   themeToggle: {
-    minWidth: 74,
+    minWidth: 52,
     height: 36,
     borderRadius: 999,
     borderWidth: 1,
