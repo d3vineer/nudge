@@ -47,9 +47,15 @@ async function getDatabase() {
           mode TEXT NOT NULL,
           phase TEXT NOT NULL,
           minutes INTEGER NOT NULL,
-          completed_at TEXT NOT NULL
+          completed_at TEXT NOT NULL,
+          note TEXT
         );
       `);
+
+      // Add the note column for databases created before sessions supported notes.
+      await db.execAsync('ALTER TABLE focus_sessions ADD COLUMN note TEXT').catch(() => {
+        // Column already exists; ignore.
+      });
 
       return db;
     });
@@ -95,13 +101,14 @@ export async function saveFocusSession(session: FocusSessionRecord) {
 
   await db.runAsync(
     `INSERT OR REPLACE INTO focus_sessions
-      (id, mode, phase, minutes, completed_at)
-      VALUES (?, ?, ?, ?, ?)`,
+      (id, mode, phase, minutes, completed_at, note)
+      VALUES (?, ?, ?, ?, ?, ?)`,
     session.id,
     session.mode,
     session.phase,
     session.minutes,
-    session.completedAt
+    session.completedAt,
+    session.note ?? null
   );
 }
 
@@ -116,6 +123,7 @@ export async function loadFocusSessions(): Promise<FocusSessionRecord[]> {
     id: number;
     minutes: number;
     mode: string;
+    note: string | null;
     phase: 'study' | 'break';
   }>('SELECT * FROM focus_sessions ORDER BY completed_at DESC LIMIT 100');
 
@@ -124,6 +132,7 @@ export async function loadFocusSessions(): Promise<FocusSessionRecord[]> {
     id: row.id,
     minutes: row.minutes,
     mode: row.mode,
+    note: row.note ?? undefined,
     phase: row.phase,
   }));
 }

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, TextInput, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { formatTimerTime, sessionModes, useFocusTimer } from '@/components/focus-timer-controller';
@@ -8,10 +9,31 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { dedupeByStudyArea, interleaveReviewQueue, type ReviewCard } from '@/lib/spaced-repetition';
+import { loadStudyReviewState } from '@/lib/study-review-loader';
 import { loadFocusSessions } from '@/lib/study-state';
 import type { FocusSessionRecord } from '@/types/study-state';
 
-const sessionPlan = ['Review Biology cards', 'Read calculus notes', 'Try a history quiz'];
+// Build a small, mixed plan from the actual uploaded subjects/topics. Cycles study areas
+// so there's always something concrete to do, varying the verb per line.
+const planTemplates: Array<(card: ReviewCard) => string> = [
+  (card) => `Review ${card.topic} flashcards`,
+  (card) => `Read ${card.course} notes`,
+  (card) => `Try a ${card.topic} quiz`,
+];
+
+function buildSessionPlan(cards: ReviewCard[]) {
+  const areas = dedupeByStudyArea(interleaveReviewQueue(cards));
+  if (areas.length === 0) {
+    return [
+      'Upload a PDF, slides, or notes to build a plan',
+      'Seed sample materials to get started',
+      'Open Library to add your first source',
+    ];
+  }
+
+  return planTemplates.map((template, index) => template(areas[index % areas.length]));
+}
 
 function formatCompletedAt(date = new Date()) {
   return new Intl.DateTimeFormat(undefined, {
@@ -39,8 +61,11 @@ export default function StudySessionScreen() {
     totalSeconds,
   } = useFocusTimer();
   const [sessionLog, setSessionLog] = useState<FocusSessionRecord[]>([]);
+  const [reviewCards, setReviewCards] = useState<ReviewCard[]>([]);
+  const [note, setNote] = useState('');
   const nextPhaseLabel = phase === 'study' ? 'break' : 'next focus block';
   const isDark = theme.background === '#07111F';
+  const sessionPlan = useMemo(() => buildSessionPlan(reviewCards), [reviewCards]);
 
   useEffect(() => {
     let isMounted = true;
@@ -54,6 +79,20 @@ export default function StudySessionScreen() {
       isMounted = false;
     };
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      loadStudyReviewState().then(({ reviewCards: nextCards }) => {
+        if (isMounted) setReviewCards(nextCards);
+      });
+
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
 
   useEffect(() => {
     if (!lastCompletedSession) return;
@@ -117,12 +156,12 @@ export default function StudySessionScreen() {
                 <ActionButton
                   label={isSelected ? 'Restart' : 'Choose'}
                   variant={isSelected ? 'secondary' : 'primary'}
-                  onPress={() => (isSelected ? startSession(mode) : selectMode(mode))}
+                  onPress={() => (isSelected ? startSession(mode, note) : selectMode(mode))}
                 />
                 <ActionButton
                   label="Start"
                   variant="secondary"
-                  onPress={() => startSession(mode)}
+                  onPress={() => startSession(mode, note)}
                 />
               </View>
             </StudyCard>
@@ -183,7 +222,7 @@ export default function StudySessionScreen() {
         </StudyCard>
 
         <StudyCard style={styles.sidePanel}>
-          <SectionHeader title="Plan" detail="A simple path for this session." />
+          <SectionHeader title="Plan" detail="Ideas from your subjects and topics." />
           {sessionPlan.map((item, index) => (
             <ThemedView key={item} style={styles.planRow}>
               <ThemedView type="backgroundSelected" style={styles.stepBadge}>
@@ -192,6 +231,26 @@ export default function StudySessionScreen() {
               <ThemedText type="smallBold">{item}</ThemedText>
             </ThemedView>
           ))}
+
+          <View style={styles.noteBlock}>
+            <ThemedText type="caption" themeColor="textSecondary">
+              Session note (optional)
+            </ThemedText>
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="What are you focusing on this session?"
+              placeholderTextColor={theme.textSecondary}
+              multiline
+              style={[
+                styles.noteInput,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.hairline, color: theme.text },
+              ]}
+            />
+            <ThemedText type="small" themeColor="textSecondary">
+              Added to the session when you start, and saved to your log.
+            </ThemedText>
+          </View>
         </StudyCard>
       </View>
 
@@ -217,6 +276,11 @@ export default function StudySessionScreen() {
                 <ThemedText type="small" themeColor="textSecondary">
                   {formatCompletedAt(new Date(item.completedAt))}
                 </ThemedText>
+                {item.note ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    “{item.note}”
+                  </ThemedText>
+                ) : null}
               </View>
               <ThemedText type="smallBold">{item.minutes} min</ThemedText>
             </ThemedView>
@@ -325,6 +389,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  noteBlock: {
+    gap: Spacing.two,
+    marginTop: Spacing.three,
+  },
+  noteInput: {
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    borderWidth: 1,
+    minHeight: 72,
+    padding: Spacing.three,
+    textAlignVertical: 'top',
   },
   emptyLog: {
     borderRadius: 22,

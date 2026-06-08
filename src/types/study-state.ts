@@ -5,6 +5,7 @@ export type FocusSessionRecord = {
   id: number;
   minutes: number;
   mode: string;
+  note?: string;
   phase: 'study' | 'break';
 };
 

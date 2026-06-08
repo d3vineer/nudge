@@ -49,8 +49,9 @@ type FocusTimerContextValue = {
   resetSession: () => void;
   selectedMode: SessionMode;
   selectMode: (mode: SessionMode) => void;
+  sessionNote: string;
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
-  startSession: (mode?: SessionMode) => void;
+  startSession: (mode?: SessionMode, note?: string) => void;
   totalSeconds: number;
 };
 
@@ -73,6 +74,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
   const [phase, setPhase] = useState<SessionPhase>('study');
   const [remainingSeconds, setRemainingSeconds] = useState(secondsFor(sessionModes[0], 'study'));
   const [isRunning, setIsRunning] = useState(false);
+  const [sessionNote, setSessionNote] = useState('');
   const [lastCompletedSession, setLastCompletedSession] = useState<FocusSessionRecord | null>(null);
   const totalSeconds = useMemo(() => secondsFor(selectedMode, phase), [phase, selectedMode]);
   const progress = totalSeconds === 0 ? 0 : 1 - remainingSeconds / totalSeconds;
@@ -102,7 +104,8 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
     setIsRunning(false);
   }
 
-  function startSession(mode = selectedMode) {
+  function startSession(mode = selectedMode, note?: string) {
+    if (note !== undefined) setSessionNote(note);
     setSelectedMode(mode);
     setPhase('study');
     setRemainingSeconds(secondsFor(mode, 'study'));
@@ -128,6 +131,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       id: Date.now(),
       minutes: completedMinutes,
       mode: selectedMode.name,
+      note: sessionNote.trim() || undefined,
       phase,
     };
 
@@ -160,6 +164,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       resetSession,
       selectedMode,
       selectMode,
+      sessionNote,
       setIsRunning,
       startSession,
       totalSeconds,
@@ -173,6 +178,7 @@ export function FocusTimerProvider({ children }: { children: React.ReactNode }) 
       progress,
       remainingSeconds,
       selectedMode,
+      sessionNote,
       totalSeconds,
     ]
   );

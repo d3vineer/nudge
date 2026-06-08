@@ -8,7 +8,14 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { formatDueDate, getDueState, getRetrievability, type ReviewCard } from '@/lib/spaced-repetition';
+import {
+  dedupeByStudyArea,
+  formatDueDate,
+  getDueState,
+  getRetrievability,
+  interleaveReviewQueue,
+  type ReviewCard,
+} from '@/lib/spaced-repetition';
 import { calculateDashboardReviewMetrics, detectWeakTopics, getStudyStreak } from '@/lib/study-analytics';
 import { loadStudyReviewState } from '@/lib/study-review-loader';
 
@@ -41,6 +48,12 @@ export default function DashboardScreen() {
         .filter((card) => getDueState(card))
         .sort((first, second) => getRetrievability(first) - getRetrievability(second))
         .slice(0, 3),
+    [reviewCards]
+  );
+  // Today's queue: a varied mix of distinct subjects/topics from the uploads, due cards
+  // first, with no repeated study area.
+  const todaysQueue = useMemo(
+    () => dedupeByStudyArea(interleaveReviewQueue(reviewCards)).slice(0, 4),
     [reviewCards]
   );
   const weakTopicItems = useMemo(() => detectWeakTopics(reviewCards), [reviewCards]);
@@ -139,9 +152,9 @@ export default function DashboardScreen() {
 
       <View style={styles.grid}>
         <StudyCard style={[styles.column, styles.playfulPanel, isDark && styles.playfulPanelDark]}>
-          <SectionHeader title="Today’s Queue" detail="Start with these." />
-          {dueReviewCards.length > 0 ? (
-            dueReviewCards.map((item) => (
+          <SectionHeader title="Today’s Queue" detail="A mix of topics — no repeats." />
+          {todaysQueue.length > 0 ? (
+            todaysQueue.map((item) => (
               <ThemedView key={item.id} style={styles.queueItem}>
                 <View style={[styles.accentDot, { backgroundColor: theme.brandPink }]} />
                 <View style={styles.queueCopy}>

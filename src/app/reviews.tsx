@@ -9,12 +9,13 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
+  buildDailyReviewQueue,
   formatDueDate,
   getElapsedDays,
   getRetrievability,
-  interleaveReviewQueue,
   recallGrades,
   reviewCard,
+  studyAreaKey,
   type RecallGrade,
   type ReviewCard,
 } from '@/lib/spaced-repetition';
@@ -45,10 +46,11 @@ export default function ReviewsScreen() {
   const [isAnswerVisible, setIsAnswerVisible] = useState(false);
   const [lastReviewed, setLastReviewed] = useState<ReviewCard | null>(null);
   const [reviewedCount, setReviewedCount] = useState(0);
-  const [sessionTarget, setSessionTarget] = useState(0);
+  const [reviewedAreas, setReviewedAreas] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const now = useMemo(() => new Date(), [cards]);
-  const queue = useMemo(() => interleaveReviewQueue(cards, now), [cards, now]);
+  // 4-6 mixed tasks for the day: subjects/topics interleaved with no repeated study area.
+  const queue = useMemo(() => buildDailyReviewQueue(cards, now), [cards, now]);
   const activeCard = cards.find((card) => card.id === activeCardId) ?? queue[0];
   const activeRetrievability = activeCard ? getRetrievability(activeCard, now) : 0;
   const dueCount = cards.filter((card) => new Date(card.dueAt).getTime() <= now.getTime()).length;
@@ -77,15 +79,17 @@ export default function ReviewsScreen() {
   function gradeActiveCard(grade: RecallGrade) {
     if (!activeCard) return;
 
-    const target = sessionTarget || Math.max(1, dueCount || queue.length);
+    // The day's target is the number of distinct study areas in the mixed queue (4-6).
+    const target = Math.max(1, queue.length);
     const nextReviewedCount = reviewedCount + 1;
+    const nextReviewedAreas = [...new Set([...reviewedAreas, studyAreaKey(activeCard)])];
     const reviewedCard = reviewCard(activeCard, grade, new Date());
     const nextCards = cards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card));
     setCards(nextCards);
     saveReviewCards(nextCards);
     setLastReviewed(reviewedCard);
     setReviewedCount(nextReviewedCount);
-    setSessionTarget(target);
+    setReviewedAreas(nextReviewedAreas);
     setIsAnswerVisible(false);
 
     if (nextReviewedCount >= target) {
@@ -93,16 +97,21 @@ export default function ReviewsScreen() {
       return;
     }
 
-    const nextCard = interleaveReviewQueue(nextCards, new Date()).find((card) => card.id !== reviewedCard.id);
+    // Move to the next study area we haven't covered yet — keeps the session mix repeat-free.
+    const nextCard = buildDailyReviewQueue(nextCards, new Date()).find(
+      (card) => !nextReviewedAreas.includes(studyAreaKey(card))
+    );
     if (nextCard) {
       setActiveCardId(nextCard.id);
+    } else {
+      setIsComplete(true);
     }
   }
 
   function restartReview() {
-    const nextQueue = interleaveReviewQueue(cards, new Date());
+    const nextQueue = buildDailyReviewQueue(cards, new Date());
     setReviewedCount(0);
-    setSessionTarget(Math.max(1, dueCount || nextQueue.length));
+    setReviewedAreas([]);
     setIsComplete(false);
     setIsAnswerVisible(false);
     setActiveCardId(nextQueue[0]?.id ?? cards[0]?.id ?? '');
@@ -280,7 +289,7 @@ export default function ReviewsScreen() {
           </StudyCard>
 
           <StudyCard style={styles.sidePanel}>
-            <SectionHeader title="Interleaved Queue" detail="Mixed by subject and topic." />
+            <SectionHeader title="Interleaved Queue" detail="4-6 mixed topics today — no repeats." />
             {queue.map((card, index) => {
               const isActive = card.id === activeCard.id;
               const recall = getRetrievability(card, now);

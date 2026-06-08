@@ -120,6 +120,39 @@ export function reviewCard(card: ReviewCard, grade: RecallGrade, now = new Date(
   };
 }
 
+// A "study area" is a subject + topic pair. Used to keep queues varied with no repeats.
+export function studyAreaKey(card: ReviewCard) {
+  return `${card.course}::${card.topic}`;
+}
+
+// Keep only the first card from each study area, preserving the incoming order.
+export function dedupeByStudyArea(cards: ReviewCard[]) {
+  const seen = new Set<string>();
+  const result: ReviewCard[] = [];
+
+  for (const card of cards) {
+    const key = studyAreaKey(card);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(card);
+  }
+
+  return result;
+}
+
+// Daily review queue: subjects/topics interleaved, no repeated study area, and capped
+// to a handful of tasks for the day (defaults to 4-6 distinct topics).
+export const DAILY_REVIEW_MIN_TASKS = 4;
+export const DAILY_REVIEW_MAX_TASKS = 6;
+
+export function buildDailyReviewQueue(
+  cards: ReviewCard[],
+  now = new Date(),
+  maxTasks = DAILY_REVIEW_MAX_TASKS
+) {
+  return dedupeByStudyArea(interleaveReviewQueue(cards, now)).slice(0, Math.max(1, maxTasks));
+}
+
 export function interleaveReviewQueue(cards: ReviewCard[], now = new Date()) {
   const dueFirst = [...cards].sort((first, second) => {
     const firstDue = getDueState(first, now) ? 0 : 1;
