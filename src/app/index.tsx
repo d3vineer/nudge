@@ -132,20 +132,20 @@ export default function DashboardScreen() {
         </StudyCard>
 
         <View style={styles.metricGrid}>
-          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandLavender }]}>
-            <ThemedText type="caption">Review</ThemedText>
-            <ThemedText type="metric">{reviewMetrics.dueCount}</ThemedText>
-            <ThemedText type="small">cards due now</ThemedText>
+          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandTeal, borderColor: 'transparent' }]}>
+            <ThemedText type="caption" style={styles.tileText}>Review</ThemedText>
+            <ThemedText type="metric" style={styles.tileText}>{reviewMetrics.dueCount}</ThemedText>
+            <ThemedText type="small" style={styles.tileText}>cards due now</ThemedText>
           </StudyCard>
-          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandPeach }]}>
-            <ThemedText type="caption">Recall</ThemedText>
-            <ThemedText type="metric">{formatPercent(reviewMetrics.averageRecall)}</ThemedText>
-            <ThemedText type="small">average right now</ThemedText>
+          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandPeach, borderColor: 'transparent' }]}>
+            <ThemedText type="caption" style={styles.tileText}>Recall</ThemedText>
+            <ThemedText type="metric" style={styles.tileText}>{formatPercent(reviewMetrics.averageRecall)}</ThemedText>
+            <ThemedText type="small" style={styles.tileText}>average right now</ThemedText>
           </StudyCard>
-          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandMint }]}>
-            <ThemedText type="caption">Streak</ThemedText>
-            <ThemedText type="metric">{studyStreak}</ThemedText>
-            <ThemedText type="small">active day{studyStreak === 1 ? '' : 's'}</ThemedText>
+          <StudyCard style={[styles.metricCard, { backgroundColor: theme.brandLavender, borderColor: 'transparent' }]}>
+            <ThemedText type="caption" style={styles.tileText}>Streak</ThemedText>
+            <ThemedText type="metric" style={styles.tileText}>{studyStreak}</ThemedText>
+            <ThemedText type="small" style={styles.tileText}>active day{studyStreak === 1 ? '' : 's'}</ThemedText>
           </StudyCard>
         </View>
       </View>
@@ -248,12 +248,10 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   heroGlowCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.84)',
-    boxShadow: '0 28px 80px rgba(184, 164, 237, 0.2), 0 0 70px rgba(164, 212, 197, 0.28)',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
   },
   heroGlowCardDark: {
-    backgroundColor: 'rgba(15, 23, 42, 0.78)',
-    boxShadow: '0 28px 80px rgba(96, 165, 250, 0.12), 0 0 70px rgba(184, 164, 237, 0.1)',
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3)',
   },
   metricGrid: {
     flexGrow: 1,
@@ -263,6 +261,9 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     minHeight: 116,
+  },
+  tileText: {
+    color: '#ffffff',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -280,16 +281,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   playfulPanel: {
-    backgroundColor: 'rgba(184, 164, 237, 0.16)',
+    backgroundColor: 'rgba(28, 176, 246, 0.08)',
   },
   playfulPanelAlt: {
-    backgroundColor: 'rgba(164, 212, 197, 0.24)',
+    backgroundColor: 'rgba(88, 204, 2, 0.08)',
   },
   playfulPanelDark: {
-    backgroundColor: 'rgba(184, 164, 237, 0.12)',
+    backgroundColor: 'rgba(28, 176, 246, 0.1)',
   },
   playfulPanelAltDark: {
-    backgroundColor: 'rgba(164, 212, 197, 0.1)',
+    backgroundColor: 'rgba(88, 204, 2, 0.1)',
   },
   queueItem: {
     backgroundColor: 'transparent',

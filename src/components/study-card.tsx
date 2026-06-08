@@ -1,4 +1,4 @@
-import { Platform, Pressable, StyleSheet, type PressableProps, type ViewProps } from 'react-native';
+import { Pressable, StyleSheet, type PressableProps, type ViewProps } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -12,29 +12,17 @@ type CardProps = ViewProps & {
 export function StudyCard({ style, tone = 'card', ...props }: CardProps) {
   const theme = useTheme();
   const isDark = theme.background === '#07111F';
-  const glassStyle = Platform.select({
-    web: {
-      backdropFilter: 'blur(22px)',
-      backgroundImage:
-        tone === 'darkSurface'
-          ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.82))'
-          : isDark
-            ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.82), rgba(30, 41, 59, 0.58))'
-            : 'linear-gradient(145deg, rgba(255,255,255,0.88), rgba(240,247,255,0.68))',
-    },
-  });
 
   return (
     <ThemedView
       type={tone}
       style={[
         styles.card,
-        glassStyle,
         {
           borderColor: theme.hairline,
           boxShadow: isDark
-            ? '0 24px 70px rgba(0, 0, 0, 0.28)'
-            : '0 24px 70px rgba(37, 99, 235, 0.10)',
+            ? '0 2px 10px rgba(0, 0, 0, 0.3)'
+            : '0 2px 8px rgba(0, 0, 0, 0.05)',
         },
         style,
       ]}
@@ -51,6 +39,8 @@ type ActionButtonProps = PressableProps & {
 export function ActionButton({ label, variant = 'primary', style, ...props }: ActionButtonProps) {
   const theme = useTheme();
   const isPrimary = variant === 'primary';
+  // Duolingo-style 3D button: a solid darker "lip" under the button that collapses on press.
+  const edgeColor = isPrimary ? theme.primaryActive : theme.hairline;
 
   return (
     <Pressable
@@ -58,13 +48,14 @@ export function ActionButton({ label, variant = 'primary', style, ...props }: Ac
       style={(state) => [
         styles.button,
         {
-          backgroundColor: isPrimary ? theme.primary : theme.background,
-          borderColor: isPrimary ? theme.primary : theme.hairline,
-          opacity: state.pressed ? 0.72 : 1,
+          backgroundColor: isPrimary ? theme.primary : theme.card,
+          borderColor: isPrimary ? 'transparent' : theme.hairline,
+          boxShadow: state.pressed ? `0 1px 0 ${edgeColor}` : `0 4px 0 ${edgeColor}`,
+          transform: state.pressed ? [{ translateY: 3 }] : undefined,
         },
         typeof style === 'function' ? style(state) : style,
       ]}>
-      <ThemedText type="button" style={{ color: isPrimary ? theme.onPrimary : theme.text }}>
+      <ThemedText type="button" style={{ color: isPrimary ? theme.onPrimary : theme.primary }}>
         {label}
       </ThemedText>
     </Pressable>
@@ -86,8 +77,8 @@ export function SectionHeader({ title, detail }: { title: string; detail?: strin
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: 1,
-    borderRadius: 24,
+    borderWidth: 2,
+    borderRadius: 22,
     borderCurve: 'continuous',
     padding: Spacing.four,
     gap: Spacing.three,
@@ -95,12 +86,12 @@ const styles = StyleSheet.create({
   },
   button: {
     flexShrink: 1,
-    minHeight: 44,
+    minHeight: 52,
     paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: 999,
+    paddingVertical: Spacing.twoHalf,
+    borderRadius: 16,
     borderCurve: 'continuous',
-    borderWidth: 1,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },

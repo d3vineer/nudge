@@ -22,8 +22,8 @@ export function StudyScreen({ eyebrow, title, subtitle, children, ...props }: St
     web: {
       backgroundImage:
         isDark
-          ? 'radial-gradient(circle at 16% 4%, rgba(96, 165, 250, 0.22), transparent 34%), radial-gradient(circle at 84% 10%, rgba(184, 164, 237, 0.18), transparent 30%), radial-gradient(circle at 50% 92%, rgba(164, 212, 197, 0.12), transparent 38%), linear-gradient(135deg, #07111F, #0F172A 52%, #111827)'
-          : 'radial-gradient(circle at 16% 4%, rgba(186, 230, 253, 0.78), transparent 34%), radial-gradient(circle at 84% 10%, rgba(219, 234, 254, 0.72), transparent 30%), radial-gradient(circle at 50% 92%, rgba(204, 251, 241, 0.34), transparent 38%), linear-gradient(135deg, #ffffff, #f7fbff 52%, #eef7ff)',
+          ? 'radial-gradient(circle at 92% 0%, rgba(88, 204, 2, 0.12), transparent 32%), radial-gradient(circle at 0% 100%, rgba(28, 176, 246, 0.1), transparent 32%), linear-gradient(180deg, #0B1620, #07111F)'
+          : 'radial-gradient(circle at 92% 0%, rgba(88, 204, 2, 0.1), transparent 30%), radial-gradient(circle at 0% 100%, rgba(28, 176, 246, 0.08), transparent 30%), linear-gradient(180deg, #FFFFFF, #F7FBF6)',
     },
   });
 
@@ -37,8 +37,8 @@ export function StudyScreen({ eyebrow, title, subtitle, children, ...props }: St
         style={[
           styles.frame,
           {
-            borderColor: theme.hairline,
-            backgroundColor: isDark ? 'rgba(7, 17, 31, 0.42)' : 'rgba(255, 255, 255, 0.34)',
+            borderColor: 'transparent',
+            backgroundColor: 'transparent',
           },
           isCompact && styles.frameCompact,
         ]}>
@@ -120,15 +120,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   titleCompact: {
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 38,
+    lineHeight: 42,
   },
   titleLong: {
-    fontSize: 34,
-    lineHeight: 39,
+    fontSize: 42,
+    lineHeight: 46,
   },
   titleVeryLong: {
-    fontSize: 30,
-    lineHeight: 35,
+    fontSize: 34,
+    lineHeight: 38,
   },
 });
