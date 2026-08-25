@@ -27,6 +27,24 @@ export type SourceRecord = {
   updatedAt: string;
 };
 
+export type CitedNote = {
+  citations: string[];
+  text: string;
+};
+
+export type CitedFlashcard = {
+  back: string;
+  citations: string[];
+  front: string;
+};
+
+export type CitedQuizItem = {
+  answer: string;
+  choices: string[];
+  citations: string[];
+  question: string;
+};
+
 export type GeneratedAssetContent = {
   summary: string;
   detailed_notes: string[];
@@ -40,6 +58,9 @@ export type GeneratedAssetContent = {
     answer: string;
   }>;
   weak_topics: string[];
+  note_items?: CitedNote[];
+  flashcard_items?: CitedFlashcard[];
+  quiz_items?: CitedQuizItem[];
 };
 
 export type GeneratedAssetRecord = {

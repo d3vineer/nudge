@@ -4,6 +4,19 @@ import { supabaseConfig, supabaseFetch, updateJob, updateSource } from '../_shar
 
 import { chunkBySections, detectSections, type SectionChunk } from '../_shared/chunking.ts';
 
+import { callGeminiGenerateContent, modelCandidates, type GeminiSchema } from '../_shared/gemini.ts';
+
+import {
+  citationLabelSet,
+  normalizeCitations,
+  sectionEvidence,
+  type CitedChunkLike,
+  type CitedFlashcard,
+  type CitedNote,
+  type CitedQuizItem,
+  type SectionPack,
+} from '../_shared/citation.ts';
+
 
 
 type SourceRow = {
@@ -26,6 +39,8 @@ topic?: string | null;
 
 type StudyPack = {
 
+verified?: boolean;
+
 detailed_notes: string[];
 
 flashcards: Array<{ back: string; front: string }>;
@@ -36,7 +51,17 @@ summary: string;
 
 weak_topics: string[];
 
+note_items?: CitedNote[];
+
+flashcard_items?: CitedFlashcard[];
+
+quiz_items?: CitedQuizItem[];
+
 };
+
+
+
+type CitedChunk = CitedChunkLike & SectionChunk & { id: string };
 
 
 
@@ -47,16 +72,6 @@ subtopics: string[];
 title: string;
 
 };
-
-
-
-type GeminiSchema =
-
-| { type: 'STRING' }
-
-| { items: GeminiSchema; type: 'ARRAY' }
-
-| { properties: Record<string, GeminiSchema>; required?: string[]; type: 'OBJECT' };
 
 
 
@@ -96,163 +111,12 @@ binary += String.fromCharCode(byte);
 
 }
 
-
-
 return btoa(binary);
-
 }
-
-
 
 function uniqueValues(values: string[]) {
 
 return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-
-}
-
-
-
-function envList(name: string) {
-
-return String(Deno.env.get(name) ?? '')
-
-.split(',')
-
-.map((value) => value.trim())
-
-.filter(Boolean);
-
-}
-
-
-
-function modelCandidates(primaryEnvName: string, fallbackEnvName: string, defaultModels: string[]) {
-
-return uniqueValues([
-
-...envList(primaryEnvName),
-
-...envList(fallbackEnvName),
-
-...defaultModels,
-
-]);
-
-}
-
-
-
-function isRetryableGeminiError(status: number, message: string) {
-
-const lowerMessage = message.toLowerCase();
-
-return (
-
-status === 429 ||
-
-status === 500 ||
-
-status === 503 ||
-
-lowerMessage.includes('high demand') ||
-
-lowerMessage.includes('overload') ||
-
-lowerMessage.includes('overloaded') ||
-
-lowerMessage.includes('temporarily') ||
-
-lowerMessage.includes('unavailable')
-
-);
-
-}
-
-
-
-function delay(milliseconds: number) {
-
-return new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-}
-
-
-
-async function callGeminiGenerateContent(
-
-apiKey: string,
-
-models: string[],
-
-body: Record<string, unknown>,
-
-stage: string,
-
-sourceId?: string
-
-) {
-
-let lastMessage = 'Gemini request failed.';
-
-
-
-for (const model of models) {
-
-for (const waitMs of [0, 900, 1800]) {
-
-if (waitMs > 0) await delay(waitMs);
-
-
-
-const response = await fetch(
-
-`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-
-{
-
-body: JSON.stringify(body),
-
-headers: { 'Content-Type': 'application/json' },
-
-method: 'POST',
-
-}
-
-);
-
-const data = await response.json();
-
-
-
-if (response.ok) {
-
-logStage(sourceId ?? 'unknown', `${stage}_model`, model);
-
-return data;
-
-}
-
-
-
-lastMessage = data?.error?.message ?? `${stage} failed with ${response.status}`;
-
-console.warn(JSON.stringify({ model, sourceId, stage, status: response.status, warning: lastMessage }));
-
-
-
-if (!isRetryableGeminiError(response.status, lastMessage)) {
-
-throw new Error(lastMessage);
-
-}
-
-}
-
-}
-
-
-
-throw new Error('Gemini is busy right now. Please retry this upload in a few minutes.');
 
 }
 
@@ -360,9 +224,7 @@ Deno.env.get('GEMINI_GENERATION_MODEL') ?? '',
 
 'gemini-3.6-flash',
 
-'gemini-2.5-flash-lite',
-
-'gemini-2.0-flash',
+'gemini-3.5-flash-lite',
 
 ]);
 
@@ -510,9 +372,7 @@ throw new Error('Outline extraction unavailable.');
 
 const models = modelCandidates('GEMINI_OUTLINE_MODEL', 'GEMINI_FALLBACK_MODELS', [
 
-'gemini-2.5-flash-lite',
-
-'gemini-2.0-flash',
+'gemini-3.5-flash-lite',
 
 ]);
 
@@ -646,7 +506,100 @@ return headingTitles.map((title) => ({ subtopics: [], title }));
 
 
 
-async function generateStudyPack(source: SourceRow, chunks: string[]): Promise<StudyPack> {
+
+
+
+const MAX_SECTIONS_PER_PACK = 8;
+
+
+
+
+
+
+
+
+
+function groupChunksBySection(chunks: CitedChunk[]) {
+
+const groups = new Map<string, CitedChunk[]>();
+
+for (const chunk of chunks) {
+
+const key = chunk.sectionPath ?? 'General';
+
+const existing = groups.get(key);
+
+if (existing) {
+
+existing.push(chunk);
+
+} else {
+
+groups.set(key, [chunk]);
+
+}
+
+}
+
+return [...groups.entries()].map(([sectionPath, groupChunks]) => ({
+
+chunks: groupChunks,
+
+sectionPath,
+
+}));
+
+}
+
+
+
+async function mapWithConcurrency<T, R>(
+
+items: T[],
+
+limit: number,
+
+worker: (item: T) => Promise<R>
+
+): Promise<Array<R | null>> {
+
+const results: Array<R | null> = new Array(items.length).fill(null);
+
+let nextIndex = 0;
+
+
+
+const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+
+while (nextIndex < items.length) {
+
+const index = nextIndex++;
+
+try {
+
+results[index] = await worker(items[index]);
+
+} catch {
+
+results[index] = null;
+
+}
+
+}
+
+});
+
+
+
+await Promise.all(runners);
+
+return results;
+
+}
+
+
+
+async function generateStudyPack(source: SourceRow, chunks: CitedChunk[]): Promise<StudyPack> {
 
 const apiKey = Deno.env.get('GEMINI_API_KEY');
 
@@ -657,6 +610,460 @@ throw new Error('GEMINI_API_KEY is required.');
 }
 
 
+
+logStage(source.id, 'generate_map', `${chunks.length} cited chunks`);
+
+
+
+const groups = groupChunksBySection(chunks).slice(0, MAX_SECTIONS_PER_PACK);
+
+
+
+const settledPacks = await mapWithConcurrency(groups, 4, async (group) => {
+
+const pack = await generateSectionPack(apiKey, source, group.sectionPath, group.chunks);
+
+logStage(source.id, 'generate_section_done', `${group.sectionPath}: ${pack.notes.length}n/${pack.flashcards.length}f/${pack.quiz.length}q`);
+
+return { chunks: group.chunks, pack };
+
+});
+
+const packedGroups = settledPacks.filter((entry): entry is { chunks: CitedChunk[]; pack: SectionPack } => entry !== null);
+
+logStage(source.id, 'generate_map_done', `${packedGroups.length}/${groups.length} sections generated`);
+
+await updateSource(source.id, { progress: 82, stage: 'generate' });
+
+
+
+if (packedGroups.length === 0) {
+
+logStage(source.id, 'generate_legacy_fallback');
+
+return generateStudyPackWholeDocument(apiKey, source, chunks.map((chunk) => chunk.text));
+
+}
+
+
+
+// Lazy verification: items ship unverified; POST /functions/v1/verify-citations
+// runs the entailment pass on demand and rewrites the asset.
+
+const material = {
+
+flashcards: packedGroups.flatMap((entry) => entry.pack.flashcards),
+
+notes: packedGroups.flatMap((entry) => entry.pack.notes),
+
+quiz: packedGroups.flatMap((entry) => entry.pack.quiz),
+
+};
+
+logStage(source.id, 'generate_material', `${material.notes.length}n/${material.flashcards.length}f/${material.quiz.length}q (unverified)`);
+
+await updateSource(source.id, { progress: 88, stage: 'generate' });
+
+
+
+const summarized = await summarizeVerifiedPacks(apiKey, source, material);
+
+
+
+return {
+
+detailed_notes: material.notes.map((note) => note.text),
+
+flashcard_items: material.flashcards,
+
+flashcards: material.flashcards.map((card) => ({ back: card.back, front: card.front })),
+
+note_items: material.notes,
+
+quiz: material.quiz.map((item) => ({
+
+answer: item.answer,
+
+choices: item.choices,
+
+question: item.question,
+
+})),
+
+quiz_items: material.quiz,
+
+summary: summarized.summary,
+
+weak_topics: summarized.weak_topics,
+
+verified: false,
+
+};
+
+}
+
+
+
+
+
+
+async function generateSectionPack(
+
+apiKey: string,
+
+source: SourceRow,
+
+sectionPath: string,
+
+chunks: CitedChunk[]
+): Promise<SectionPack> {
+
+const knownLabels = citationLabelSet(chunks);
+
+const citationSchema: GeminiSchema = { items: { type: 'STRING' }, type: 'ARRAY' };
+
+
+
+const schema: GeminiSchema = {
+
+properties: {
+
+flashcards: {
+
+items: {
+
+properties: {
+
+back: { type: 'STRING' },
+
+citations: citationSchema,
+
+front: { type: 'STRING' },
+
+},
+
+required: ['front', 'back'],
+
+type: 'OBJECT',
+
+},
+
+type: 'ARRAY',
+
+},
+
+notes: {
+
+items: {
+
+properties: {
+
+citations: citationSchema,
+
+text: { type: 'STRING' },
+
+},
+
+required: ['text'],
+
+type: 'OBJECT',
+
+},
+
+type: 'ARRAY',
+
+},
+
+quiz: {
+
+items: {
+
+properties: {
+
+answer: { type: 'STRING' },
+
+choices: { items: { type: 'STRING' }, type: 'ARRAY' },
+
+citations: citationSchema,
+
+question: { type: 'STRING' },
+
+},
+
+required: ['question', 'choices', 'answer'],
+
+type: 'OBJECT',
+
+},
+
+type: 'ARRAY',
+
+},
+
+},
+
+required: ['notes', 'flashcards', 'quiz'],
+
+type: 'OBJECT',
+
+};
+
+
+
+const data = await callGeminiGenerateContent(
+
+apiKey,
+
+modelCandidates('GEMINI_GENERATION_MODEL', 'GEMINI_FALLBACK_MODELS', [
+
+'gemini-3.6-flash',
+
+'gemini-3.5-flash-lite',
+
+]),
+
+{
+
+contents: [
+
+{
+
+parts: [
+
+{
+
+text:
+
+`Create study material for the section "${sectionPath}" of "${source.title}".\n` +
+
+'Each passage below starts with a chunk label like [C12].\n' +
+
+`Return at most ${SECTION_ITEM_LIMITS.notes} detailed notes, ${SECTION_ITEM_LIMITS.flashcards} flashcards, and ${SECTION_ITEM_LIMITS.quiz} quiz questions.\n` +
+
+'Every item MUST include a "citations" array listing the chunk labels it was derived from. Never invent labels.\n' +
+
+'Use only the provided passages. Prefer active recall, FSRS-friendly flashcards, and concise quiz answers.\n\n' +
+
+sectionEvidence(chunks),
+
+},
+
+],
+
+role: 'user',
+
+},
+
+],
+
+generationConfig: {
+
+responseMimeType: 'application/json',
+
+responseSchema: schema,
+
+},
+
+},
+
+'section_generate',
+
+source.id
+
+);
+
+
+
+const text = data.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+
+if (!text) {
+
+throw new Error('Gemini response did not include JSON text.');
+
+}
+
+
+
+const parsed = JSON.parse(text) as Partial<SectionPack>;
+
+return {
+
+flashcards: (parsed.flashcards ?? []).map((card) => ({
+
+back: String(card.back ?? ''),
+
+citations: normalizeCitations(card.citations, knownLabels),
+
+front: String(card.front ?? ''),
+
+})).filter((card) => card.front && card.back),
+
+notes: (parsed.notes ?? []).map((note) => ({
+
+citations: normalizeCitations(note.citations, knownLabels),
+
+text: String(note.text ?? ''),
+
+})).filter((note) => note.text),
+
+quiz: (parsed.quiz ?? []).map((item) => ({
+
+answer: String(item.answer ?? ''),
+
+choices: Array.isArray(item.choices) ? item.choices.map(String) : [],
+
+citations: normalizeCitations(item.citations, knownLabels),
+
+question: String(item.question ?? ''),
+
+})).filter((item) => item.question && item.choices.length > 0 && item.answer),
+
+sectionPath,
+
+};
+
+}
+
+
+
+type VerifiedMaterial = {
+
+flashcards: CitedFlashcard[];
+
+notes: CitedNote[];
+
+quiz: CitedQuizItem[];
+
+};
+
+
+
+
+
+
+async function summarizeVerifiedPacks(
+
+apiKey: string,
+source: SourceRow,
+material: VerifiedMaterial
+
+): Promise<{ summary: string; weak_topics: string[] }> {
+
+const schema: GeminiSchema = {
+
+properties: {
+
+summary: { type: 'STRING' },
+
+weak_topics: { items: { type: 'STRING' }, type: 'ARRAY' },
+
+},
+
+required: ['summary', 'weak_topics'],
+
+type: 'OBJECT',
+
+};
+
+
+
+try {
+
+const data = await callGeminiGenerateContent(
+
+apiKey,
+
+modelCandidates('GEMINI_GENERATION_MODEL', 'GEMINI_FALLBACK_MODELS', [
+
+'gemini-3.6-flash',
+
+'gemini-3.5-flash-lite',
+
+]),
+
+{
+
+contents: [
+
+{
+
+parts: [
+
+{
+
+text:
+
+`These are verified study notes generated from "${source.title}".\n` +
+
+'Write a concise overall summary and list weak topics students should revise.\n\n' +
+
+material.notes.map((note) => `- ${note.text}`).join('\n').slice(0, 30_000),
+
+},
+
+],
+
+role: 'user',
+
+},
+
+],
+
+generationConfig: {
+
+responseMimeType: 'application/json',
+
+responseSchema: schema,
+
+},
+
+},
+
+'summarize',
+
+source.id
+
+);
+
+
+
+const raw = data.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+
+if (raw) {
+
+const parsed = JSON.parse(raw) as { summary?: string; weak_topics?: string[] };
+
+return {
+
+summary: String(parsed.summary ?? '').trim(),
+
+weak_topics: uniqueValues(Array.isArray(parsed.weak_topics) ? parsed.weak_topics.map(String) : []),
+
+};
+
+}
+
+} catch (error) {
+
+console.warn(JSON.stringify({ error: error instanceof Error ? error.message : 'unknown', sourceId: source.id, stage: 'summarize_skipped' }));
+
+}
+
+
+
+return {
+
+summary: material.notes[0]?.text ?? source.title,
+
+weak_topics: [],
+
+};
+
+}
+
+
+
+async function generateStudyPackWholeDocument(apiKey: string, source: SourceRow, chunks: string[]): Promise<StudyPack> {
 
 const schema: GeminiSchema = {
 
@@ -732,21 +1139,19 @@ source.topic ? `Topic: ${source.topic}` : null,
 
 ].filter(Boolean).join('\n');
 
-const models = modelCandidates('GEMINI_GENERATION_MODEL', 'GEMINI_FALLBACK_MODELS', [
 
-'gemini-3.6-flash',
-
-'gemini-2.5-flash-lite',
-
-'gemini-2.0-flash',
-
-]);
 
 const data = await callGeminiGenerateContent(
 
 apiKey,
 
-models,
+modelCandidates('GEMINI_GENERATION_MODEL', 'GEMINI_FALLBACK_MODELS', [
+
+'gemini-3.6-flash',
+
+'gemini-3.5-flash-lite',
+
+]),
 
 {
 
@@ -948,7 +1353,11 @@ updateJob(sourceId, { stage: 'chunk' }),
 
 ]);
 
-const sectionChunks = chunkBySections(text);
+const sectionChunks: CitedChunk[] = chunkBySections(text).map((chunk, index) => ({
+...chunk,
+id: crypto.randomUUID(),
+label: `C${index + 1}`,
+}));
 
 logStage(sourceId, 'chunk', `${sectionChunks.length} chunks across ${new Set(sectionChunks.map((chunk) => chunk.sectionPath)).size} sections`);
 
@@ -1000,6 +1409,8 @@ chunk_index: index,
 
 embedding: `[${embeddings[index].join(',')}]`,
 
+id: chunk.id,
+
 page: chunk.page,
 
 section_path: chunk.sectionPath,
@@ -1028,7 +1439,7 @@ updateJob(sourceId, { stage: 'generate' }),
 
 logStage(sourceId, 'generate');
 
-const studyPack = await generateStudyPack(source, sectionChunks.map((chunk) => chunk.text));
+const studyPack = await generateStudyPack(source, sectionChunks);
 
 await supabaseFetch(`/rest/v1/generated_assets?source_id=eq.${sourceId}`, {
 
