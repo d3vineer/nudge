@@ -1,5 +1,5 @@
 import { handleOptions, json } from '../_shared/cors.ts';
-import { getUserId, supabaseFetch } from '../_shared/supabase.ts';
+import { supabaseFetch } from '../_shared/supabase.ts';
 
 const supportedMimeTypes = new Set([
   'application/pdf',
@@ -22,8 +22,6 @@ Deno.serve(async (request) => {
       return json({ error: 'Method not allowed.' }, 405);
     }
 
-    const userId = await getUserId(request);
-
     const body = await request.json();
     const title = String(body.title ?? '').trim();
     const mimeType = String(body.mimeType ?? '').trim();
@@ -41,7 +39,6 @@ Deno.serve(async (request) => {
       headers: { Prefer: 'return=representation' },
       json: {
         id: sourceId,
-        user_id: userId,
         mime_type: mimeType,
         progress: 5,
         size,
