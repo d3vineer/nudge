@@ -2,6 +2,8 @@ import { handleOptions, json } from '../_shared/cors.ts';
 
 import { supabaseConfig, supabaseFetch, updateJob, updateSource } from '../_shared/supabase.ts';
 
+import { chunkBySections, detectSections, type SectionChunk } from '../_shared/chunking.ts';
+
 
 
 type SourceRow = {
@@ -38,6 +40,16 @@ weak_topics: string[];
 
 
 
+type OutlineNode = {
+
+subtopics: string[];
+
+title: string;
+
+};
+
+
+
 type GeminiSchema =
 
 | { type: 'STRING' }
@@ -67,30 +79,6 @@ console.log(JSON.stringify({ detail, sourceId, stage }));
 function estimateTokens(text: string) {
 
 return Math.ceil(text.length / 4);
-
-}
-
-
-
-function chunkText(text: string) {
-
-const words = text.replace(/\s+/g, ' ').trim().split(' ');
-
-const chunks: string[] = [];
-
-const wordsPerChunk = 700;
-
-
-
-for (let index = 0; index < words.length; index += wordsPerChunk) {
-
-chunks.push(words.slice(index, index + wordsPerChunk).join(' '));
-
-}
-
-
-
-return chunks.filter(Boolean).slice(0, 24);
 
 }
 
@@ -370,7 +358,7 @@ const models = modelCandidates('GEMINI_EXTRACTION_MODEL', 'GEMINI_FALLBACK_MODEL
 
 Deno.env.get('GEMINI_GENERATION_MODEL') ?? '',
 
-'gemini-2.5-flash',
+'gemini-3.6-flash',
 
 'gemini-2.5-flash-lite',
 
@@ -508,6 +496,156 @@ return data.embeddings.map((item: { values: number[] }) => item.values);
 
 
 
+async function extractOutline(source: SourceRow, text: string): Promise<OutlineNode[]> {
+
+const apiKey = Deno.env.get('GEMINI_API_KEY');
+
+if (!apiKey || text.trim().length === 0) {
+
+throw new Error('Outline extraction unavailable.');
+
+}
+
+
+
+const models = modelCandidates('GEMINI_OUTLINE_MODEL', 'GEMINI_FALLBACK_MODELS', [
+
+'gemini-2.5-flash-lite',
+
+'gemini-2.0-flash',
+
+]);
+
+
+
+const schema: GeminiSchema = {
+
+properties: {
+
+topics: {
+
+items: {
+
+properties: {
+
+subtopics: { items: { type: 'STRING' }, type: 'ARRAY' },
+
+title: { type: 'STRING' },
+
+},
+
+required: ['title'],
+
+type: 'OBJECT',
+
+},
+
+type: 'ARRAY',
+
+},
+
+},
+
+required: ['topics'],
+
+type: 'OBJECT',
+
+};
+
+
+
+try {
+
+const data = await callGeminiGenerateContent(
+
+apiKey,
+
+models,
+
+{
+
+contents: [
+
+{
+
+parts: [
+
+{
+
+text:
+
+`Identify the main topics and sub-topics of this document "${source.title}". ` +
+
+'Return them in document order. Keep titles short.\n\n' +
+
+text.slice(0, 40_000),
+
+},
+
+],
+
+role: 'user',
+
+},
+
+],
+
+generationConfig: {
+
+responseMimeType: 'application/json',
+
+responseSchema: schema,
+
+},
+
+},
+
+'outline',
+
+source.id
+
+);
+
+
+
+const raw = data.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+
+if (!raw) {
+
+throw new Error('Gemini response did not include JSON text.');
+
+}
+
+return JSON.parse(raw).topics as OutlineNode[];
+
+} catch (error) {
+
+console.warn(JSON.stringify({ error: error instanceof Error ? error.message : 'unknown', stage: 'outline_llm_fallback', sourceId: source.id }));
+
+}
+
+
+
+// Fallback: headings detected by the structural chunker.
+
+const headingTitles = uniqueValues(
+
+detectSections(text)
+
+.map((section) => section.sectionPath)
+
+.filter((path): path is string => Boolean(path))
+
+.slice(0, 30)
+
+);
+
+return headingTitles.map((title) => ({ subtopics: [], title }));
+
+}
+
+
+
 async function generateStudyPack(source: SourceRow, chunks: string[]): Promise<StudyPack> {
 
 const apiKey = Deno.env.get('GEMINI_API_KEY');
@@ -596,7 +734,7 @@ source.topic ? `Topic: ${source.topic}` : null,
 
 const models = modelCandidates('GEMINI_GENERATION_MODEL', 'GEMINI_FALLBACK_MODELS', [
 
-'gemini-2.5-flash',
+'gemini-3.6-flash',
 
 'gemini-2.5-flash-lite',
 
@@ -810,9 +948,29 @@ updateJob(sourceId, { stage: 'chunk' }),
 
 ]);
 
-const chunks = chunkText(text);
+const sectionChunks = chunkBySections(text);
 
-logStage(sourceId, 'chunk', `${chunks.length} chunks`);
+logStage(sourceId, 'chunk', `${sectionChunks.length} chunks across ${new Set(sectionChunks.map((chunk) => chunk.sectionPath)).size} sections`);
+
+
+
+// Best-effort: derive and persist a topic outline without blocking the pipeline on failure.
+
+let outline: OutlineNode[] | null = null;
+
+try {
+
+  outline = await extractOutline(source, text);
+
+  await updateSource(sourceId, { outline: { topics: outline } });
+
+  logStage(sourceId, 'outline', `${outline.length} topics`);
+
+} catch (outlineError) {
+
+  logStage(sourceId, 'outline_skipped', outlineError instanceof Error ? outlineError.message : 'unknown');
+
+}
 
 
 
@@ -826,7 +984,7 @@ updateJob(sourceId, { stage: 'embed' }),
 
 logStage(sourceId, 'embed');
 
-const embeddings = await createEmbeddings(chunks);
+const embeddings = await createEmbeddings(sectionChunks.map((chunk) => chunk.text));
 
 await supabaseFetch(`/rest/v1/chunks?source_id=eq.${sourceId}`, {
 
@@ -836,17 +994,21 @@ method: 'DELETE',
 
 await supabaseFetch('/rest/v1/chunks', {
 
-json: chunks.map((chunk, index) => ({
+json: sectionChunks.map((chunk, index) => ({
 
 chunk_index: index,
 
 embedding: `[${embeddings[index].join(',')}]`,
 
+page: chunk.page,
+
+section_path: chunk.sectionPath,
+
 source_id: sourceId,
 
-text: chunk,
+text: chunk.text,
 
-token_count: estimateTokens(chunk),
+token_count: estimateTokens(chunk.text),
 
 })),
 
@@ -866,7 +1028,7 @@ updateJob(sourceId, { stage: 'generate' }),
 
 logStage(sourceId, 'generate');
 
-const studyPack = await generateStudyPack(source, chunks);
+const studyPack = await generateStudyPack(source, sectionChunks.map((chunk) => chunk.text));
 
 await supabaseFetch(`/rest/v1/generated_assets?source_id=eq.${sourceId}`, {
 
