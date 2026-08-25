@@ -36,7 +36,7 @@ type ActionButtonProps = PressableProps & {
   variant?: 'primary' | 'secondary';
 };
 
-export function ActionButton({ label, variant = 'primary', style, ...props }: ActionButtonProps) {
+/*export function ActionButton({ label, variant = 'primary', style, ...props }: ActionButtonProps) {
   const theme = useTheme();
   const isPrimary = variant === 'primary';
   // Duolingo-style 3D button: a solid darker "lip" under the button that collapses on press.
@@ -56,6 +56,48 @@ export function ActionButton({ label, variant = 'primary', style, ...props }: Ac
         typeof style === 'function' ? style(state) : style,
       ]}>
       <ThemedText type="button" style={{ color: isPrimary ? theme.onPrimary : theme.primary }}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}*/
+
+export function ActionButton({
+  label,
+  variant = 'primary',
+  style,
+  ...props
+}: ActionButtonProps) {
+  const theme = useTheme();
+  const isPrimary = variant === 'primary';
+
+  // Duolingo-style 3D button: a solid darker "lip" under the button that collapses on press.
+  const edgeColor = isPrimary ? theme.primaryActive : theme.hairline;
+
+  return (
+    <Pressable
+      {...props}
+      style={(state) => [
+        styles.button,
+        {
+          backgroundColor: isPrimary ? theme.primary : theme.card,
+          borderColor: isPrimary ? 'transparent' : theme.hairline,
+          boxShadow: state.pressed
+            ? `0 1px 0 ${edgeColor}`
+            : `0 4px 0 ${edgeColor}`,
+          transform: [
+            {
+              translateY: state.pressed ? 3 : 0,
+            },
+          ],
+        },
+        typeof style === 'function' ? style(state) : style,
+      ]}
+    >
+      <ThemedText
+        type="button"
+        style={{ color: isPrimary ? theme.onPrimary : theme.primary }}
+      >
         {label}
       </ThemedText>
     </Pressable>
