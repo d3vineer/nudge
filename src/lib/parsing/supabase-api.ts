@@ -1,11 +1,14 @@
 import { env, hasSupabaseConfig } from '@/lib/env';
 import { supabase } from '@/lib/supabase';
 import type {
+  AskResponse,
   GeneratedAssetContent,
   GeneratedAssetRecord,
   PickedStudyFile,
   SourceRecord,
   UploadMetadata,
+  UploadResult,
+  VerifyResponse,
 } from '@/types/parsing';
 
 type SourceRow = {
@@ -233,4 +236,28 @@ export async function listGeneratedAssets() {
   const rows = await readResponse<AssetRow[]>(response);
 
   return rows.map(mapAssetRow);
+}
+
+export async function askSource(sourceId: string, question: string): Promise<AskResponse> {
+  requireConfig();
+
+  const response = await fetch(functionUrl('ask-source'), {
+    body: JSON.stringify({ question, sourceId }),
+    headers: await headers(),
+    method: 'POST',
+  });
+
+  return readResponse<AskResponse>(response);
+}
+
+export async function verifyCitations(sourceId: string): Promise<VerifyResponse> {
+  requireConfig();
+
+  const response = await fetch(functionUrl('verify-citations'), {
+    body: JSON.stringify({ sourceId }),
+    headers: await headers(),
+    method: 'POST',
+  });
+
+  return readResponse<VerifyResponse>(response);
 }

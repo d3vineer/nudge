@@ -58,6 +58,7 @@ export type GeneratedAssetContent = {
     answer: string;
   }>;
   weak_topics: string[];
+  verified?: boolean;
   note_items?: CitedNote[];
   flashcard_items?: CitedFlashcard[];
   quiz_items?: CitedQuizItem[];
@@ -89,4 +90,24 @@ export type UploadMetadata = {
 export type UploadResult = {
   source: SourceRecord;
   asset: GeneratedAssetRecord | null;
+};
+
+export type AskCitation = {
+  label: string;
+  sectionPath: string | null;
+  snippet: string;
+};
+
+export type AskResponse = {
+  answer: string;
+  citations: AskCitation[];
+  question: string;
+  sourceId: string;
+};
+
+export type VerifyResponse = {
+  dropped: { flashcards: number; notes: number; quiz: number };
+  kept: { flashcards: number; notes: number; quiz: number };
+  sourceId: string;
+  verified: boolean;
 };
