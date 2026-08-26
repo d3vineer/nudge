@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ActionButton, SectionHeader, StudyCard } from '@/components/study-card';
 import { StudyScreen } from '@/components/study-screen';
@@ -8,9 +8,10 @@ import { ThemedView } from '@/components/themed-view';
 import { hasSupabaseConfig } from '@/lib/env';
 import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import { refreshParsingState } from '@/lib/parsing/pipeline';
+import { askSource, startProcessing, verifyCitations } from '@/lib/parsing/supabase-api';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import type { GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
+import type { AskResponse, GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
 
 type AssetView = 'summary' | 'notes' | 'flashcards' | 'quiz';
 
@@ -67,6 +68,16 @@ function sourceForAsset(asset: GeneratedAssetRecord, sources: SourceRecord[]) {
   return sources.find((source) => source.id === asset.sourceId);
 }
 
+function isLegacyAsset(asset: GeneratedAssetRecord) {
+  // Packs generated before the cited pipeline have no *_items arrays.
+  const content = asset.content;
+  return (
+    !content.note_items?.length &&
+    !content.flashcard_items?.length &&
+    !content.quiz_items?.length
+  );
+}
+
 export default function AssetsScreen() {
   const theme = useTheme();
   const isDark = theme.background === '#07111F';
@@ -79,6 +90,14 @@ export default function AssetsScreen() {
   const [statusText, setStatusText] = useState('Loading study tools...');
   const [revealedCards, setRevealedCards] = useState<Record<string, boolean>>({});
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
+  const [isAskOpen, setIsAskOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState('');
+  const [askResult, setAskResult] = useState<AskResponse | null>(null);
+  const [isAsking, setIsAsking] = useState(false);
+  const [askMessage, setAskMessage] = useState('');
+  const [expandedCitation, setExpandedCitation] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isReprocessing, setIsReprocessing] = useState(false);
 
   const loadAssets = useCallback(async () => {
     const [cachedSources, cachedAssets] = await Promise.all([
@@ -183,6 +202,73 @@ export default function AssetsScreen() {
       ...current,
       [questionKey]: choice,
     }));
+  }
+
+  async function submitQuestion() {
+    if (!selectedAsset || askQuestion.trim().length === 0) return;
+
+    setIsAsking(true);
+    setAskMessage('');
+    try {
+      const result = await askSource(selectedAsset.sourceId, askQuestion.trim());
+      setAskResult(result);
+    } catch (error) {
+      setAskResult(null);
+      setAskMessage(error instanceof Error ? error.message : 'Could not answer that question.');
+    } finally {
+      setIsAsking(false);
+    }
+  }
+
+  async function verifySelectedAsset() {
+    if (!selectedAsset) return;
+
+    setIsVerifying(true);
+    setAskMessage('');
+    try {
+      const result = await verifyCitations(selectedAsset.sourceId);
+      setAskMessage(
+        `Verification done: kept ${result.kept.notes} notes, ${result.kept.flashcards} cards, ${result.kept.quiz} questions.`
+      );
+      await loadAssets();
+    } catch (error) {
+      setAskMessage(error instanceof Error ? error.message : 'Verification failed.');
+    } finally {
+      setIsVerifying(false);
+    }
+  }
+
+  async function reprocessSelected() {
+    if (!selectedAsset || isReprocessing) return;
+
+    setIsReprocessing(true);
+    setStatusText('Reprocessing with the new pipeline...');
+    try {
+      await startProcessing(selectedAsset.sourceId);
+
+      // Poll until the source leaves the processing states (or give up after ~3 min).
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+        const remote = await refreshParsingState();
+        setAssets(remote.assets);
+        setSources(remote.sources);
+
+        const source = remote.sources.find((entry) => entry.id === selectedAsset.sourceId);
+        if (!source || source.status === 'ready' || source.status === 'failed') {
+          setStatusText(
+            source?.status === 'failed'
+              ? `Reprocess failed: ${source.error ?? 'unknown error'}`
+              : 'Reprocess complete - section-aware study pack generated.'
+          );
+          break;
+        }
+        setStatusText(`Reprocessing... ${source.stage} (${source.progress}%)`);
+      }
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : 'Could not reprocess this document.');
+    } finally {
+      setIsReprocessing(false);
+    }
   }
 
   return (
@@ -301,9 +387,30 @@ export default function AssetsScreen() {
                   </ThemedText>
                   <ThemedText type="subtitle">{selectedAsset.title}</ThemedText>
                 </View>
-                <ThemedView type="backgroundElement" style={styles.modelPill}>
-                  <ThemedText type="smallBold">Study pack</ThemedText>
-                </ThemedView>
+                <View style={styles.headerActions}>
+                  {isLegacyAsset(selectedAsset) && (
+                    <ActionButton
+                      label={isReprocessing ? 'Reprocessing...' : 'Reprocess'}
+                      variant="secondary"
+                      onPress={reprocessSelected}
+                    />
+                  )}
+                  {selectedAsset.content.verified === false && (
+                    <ActionButton
+                      label={isVerifying ? 'Verifying...' : 'Verify citations'}
+                      variant="secondary"
+                      onPress={verifySelectedAsset}
+                    />
+                  )}
+                  <ActionButton
+                    label={isAskOpen ? 'Close ask' : 'Ask this document'}
+                    variant="secondary"
+                    onPress={() => {
+                      setIsAskOpen((open) => !open);
+                      setAskMessage('');
+                    }}
+                  />
+                </View>
               </View>
 
               <View style={styles.tabRow}>
@@ -328,6 +435,71 @@ export default function AssetsScreen() {
                   );
                 })}
               </View>
+
+              {isAskOpen && (
+                <ThemedView type="backgroundElement" style={styles.askPanel}>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    Ask about {selectedAsset.title}
+                  </ThemedText>
+                  <View style={styles.askRow}>
+                    <TextInput
+                      editable={!isAsking}
+                      multiline
+                      onChangeText={setAskQuestion}
+                      placeholder="Ask anything about this document..."
+                      placeholderTextColor={theme.textSecondary}
+                      style={[styles.askInput, { borderColor: theme.hairline, color: theme.text }]}
+                      value={askQuestion}
+                    />
+                    <ActionButton
+                      label={isAsking ? 'Thinking...' : 'Ask'}
+                      onPress={submitQuestion}
+                    />
+                  </View>
+
+                  {askMessage ? (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {askMessage}
+                    </ThemedText>
+                  ) : null}
+
+                  {askResult ? (
+                    <View style={styles.askResult}>
+                      <ThemedText type="default">{askResult.answer}</ThemedText>
+                      {askResult.citations.length > 0 && (
+                        <View style={styles.stack}>
+                          <ThemedText type="caption" themeColor="textSecondary">
+                            Citations - tap to view source
+                          </ThemedText>
+                          {askResult.citations.map((citation) => {
+                            const citationKey = `${askResult.sourceId}-${citation.label}`;
+                            const isExpanded = expandedCitation === citationKey;
+
+                            return (
+                              <Pressable
+                                key={citationKey}
+                                onPress={() => setExpandedCitation(isExpanded ? '' : citationKey)}
+                                style={({ pressed }) => pressed && styles.pressed}>
+                                <ThemedView type="backgroundSelected" style={styles.citationPill}>
+                                  <ThemedText type="smallBold">
+                                    {citation.label}
+                                    {citation.sectionPath ? ` - ${citation.sectionPath}` : ''}
+                                  </ThemedText>
+                                  {isExpanded && (
+                                    <ThemedText type="small" themeColor="textSecondary">
+                                      {citation.snippet}
+                                    </ThemedText>
+                                  )}
+                                </ThemedView>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  ) : null}
+                </ThemedView>
+              )}
 
               {assetView === 'summary' && (
                 <ThemedView style={[styles.summaryCard, styles.summaryGlow, isDark && styles.summaryGlowDark]}>
@@ -520,6 +692,44 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  askPanel: {
+    borderRadius: 22,
+    borderCurve: 'continuous',
+    gap: Spacing.three,
+    minWidth: 0,
+    padding: Spacing.four,
+  },
+  askRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing.two,
+  },
+  askInput: {
+    borderRadius: 18,
+    borderCurve: 'continuous',
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 56,
+    minWidth: 0,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    textAlignVertical: 'top',
+  },
+  askResult: {
+    gap: Spacing.three,
+  },
+  citationPill: {
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    gap: Spacing.one,
+    minWidth: 0,
+    padding: Spacing.three,
   },
   tabRow: {
     flexDirection: 'row',

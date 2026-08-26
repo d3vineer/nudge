@@ -46,6 +46,26 @@ export async function supabaseFetch<T>(
   return data as T;
 }
 
+export function getUserIdFromAuth(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  try {
+    const token = authHeader.replace('Bearer ', '');
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.sub || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function assertSourceOwnership(userId: string, sourceId: string): Promise<boolean> {
+  const rows = await supabaseFetch<Array<{ id: string }>>(
+    `/rest/v1/sources?id=eq.${sourceId}&user_id=eq.${userId}&select=id&limit=1`
+  );
+  return rows.length > 0;
+}
+
 export async function updateSource(sourceId: string, patch: Record<string, unknown>) {
   return supabaseFetch(`/rest/v1/sources?id=eq.${sourceId}`, {
     headers: { Prefer: 'return=representation' },

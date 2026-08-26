@@ -27,6 +27,24 @@ export type SourceRecord = {
   updatedAt: string;
 };
 
+export type CitedNote = {
+  citations: string[];
+  text: string;
+};
+
+export type CitedFlashcard = {
+  back: string;
+  citations: string[];
+  front: string;
+};
+
+export type CitedQuizItem = {
+  answer: string;
+  choices: string[];
+  citations: string[];
+  question: string;
+};
+
 export type GeneratedAssetContent = {
   summary: string;
   detailed_notes: string[];
@@ -40,6 +58,10 @@ export type GeneratedAssetContent = {
     answer: string;
   }>;
   weak_topics: string[];
+  verified?: boolean;
+  note_items?: CitedNote[];
+  flashcard_items?: CitedFlashcard[];
+  quiz_items?: CitedQuizItem[];
 };
 
 export type GeneratedAssetRecord = {
@@ -68,4 +90,24 @@ export type UploadMetadata = {
 export type UploadResult = {
   source: SourceRecord;
   asset: GeneratedAssetRecord | null;
+};
+
+export type AskCitation = {
+  label: string;
+  sectionPath: string | null;
+  snippet: string;
+};
+
+export type AskResponse = {
+  answer: string;
+  citations: AskCitation[];
+  question: string;
+  sourceId: string;
+};
+
+export type VerifyResponse = {
+  dropped: { flashcards: number; notes: number; quiz: number };
+  kept: { flashcards: number; notes: number; quiz: number };
+  sourceId: string;
+  verified: boolean;
 };

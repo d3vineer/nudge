@@ -1,64 +1,86 @@
-# Nudge Parser Worker
+# Parser Worker (Docling)
 
-The Supabase Edge Function (`process-source`) calls this worker for heavier text
-extraction that is not a good fit for the Deno Edge runtime. The worker does local
-extraction first; the Edge Function only falls back to Gemini OCR when the worker
-returns too little text (and finally marks a source `needs_ocr`).
+OCR/structure extraction service for the Nudge pipeline. Uses [Docling](https://github.com/docling-project/docling)
+to convert PDFs, DOCX, PPTX, and images into Markdown with preserved headings
+(which the `chunkBySections` step in `process-source` uses to build section metadata).
 
-## Run
+## Contract
 
-```sh
-npm install
-npm run dev      # or: npm start  — listens on :8787 (override with PORT)
-```
-
-The Edge Function reaches it via the `PARSER_WORKER_URL` env var (e.g.
-`http://localhost:8787`).
-
-## Endpoint
-
-```txt
-POST /extract
-```
-
-Request JSON:
+`POST /extract`
 
 ```json
 {
-  "sourceId": "uuid",
-  "title": "lecture.pdf",
+  "fileBase64": "<base64 file contents>",
   "mimeType": "application/pdf",
-  "fileBase64": "..."
+  "sourceId": "optional",
+  "title": "optional"
 }
 ```
 
-Response JSON:
+Response: `{ "text": "<markdown>" }`. Non-2xx responses make the edge function
+fall back to Gemini-based OCR.
 
-```json
-{
-  "text": "extracted source text",
-  "method": "text | docx-text | pptx-text | pdf-text | pdf-ocr | image-ocr | unsupported"
-}
+Also exposes `GET /health`.
+
+## Run locally
+
+```bash
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8787
 ```
 
-- `400` — malformed JSON body.
-- `200` — every other case, **including extraction failures**. On a recoverable error
-  the worker returns `{ text: "", method: "<type>-error", error }` so the caller can fall
-  back to Gemini OCR / `needs_ocr` instead of failing the whole job.
+## Run in Docker
 
-## Extraction
+```bash
+docker build -t nudge-parser-worker .
+docker run -p 8787:8787 nudge-parser-worker
+```
 
-| Input | Library | `method` |
-| --- | --- | --- |
-| `text/plain` / `.txt` | native | `text` |
-| `.docx` | `mammoth` | `docx-text` |
-| `.pptx` | ZIP reader (slides + speaker notes) | `pptx-text` |
-| PDF with a text layer | `pdfjs-dist` | `pdf-text` |
-| Scanned / image-only PDF | `pdfjs-dist` render + `tesseract.js` OCR | `pdf-ocr` |
-| Images (`image/*`) | `tesseract.js` OCR | `image-ocr` |
-| anything else | — | `unsupported` |
+For local testing against iOS/Android simulators, expose it publicly:
 
-OCR uses a single, lazily-created, reused `tesseract.js` worker (`eng`). The traineddata
-is cached under `.tesseract-cache/` (override with `TESSERACT_CACHE_PATH`). PDF
-rasterization for OCR uses `@napi-rs/canvas` (prebuilt npm binaries — no system install).
-PDF OCR is capped at the first 15 pages to bound latency.
+```bash
+cloudflared tunnel --url http://localhost:8787
+```
+
+## Quickstart tunnels (trycloudflare) expire
+
+`cloudflared tunnel --url ...` without a hostname gives you a **temporary**
+`https://<random>.trycloudflare.com` URL that changes **every time you restart
+the tunnel or your machine**. Since Supabase reads `PARSER_WORKER_URL` from its
+secrets at invocation time, you must re-set the secret after each restart:
+
+```bash
+npx supabase secrets set PARSER_WORKER_URL=https://<new-random-url>.trycloudflare.com
+```
+
+A stale URL makes uploads fall back to Gemini OCR (the pipeline logs
+`parser_worker_unreachable` — it will not fail).
+
+To avoid this churn:
+
+- Use a named Cloudflare tunnel with a fixed hostname (free Cloudflare account):
+  ```bash
+  cloudflared tunnel login
+  cloudflared tunnel create nudge-parser
+  cloudflared tunnel route dns nudge-parser parser.yourdomain.com   # or <name>.cfargotunnel.com setup via dashboard
+  cloudflared tunnel run nudge-parser
+  ```
+- Or deploy the container to Fly.io / Google Cloud Run / Railway for a permanent
+  HTTPS URL (see "Deploy options" below).
+
+## Wire it up
+
+Set the Supabase secret so `process-source` routes non-plaintext files here:
+
+```bash
+npx supabase secrets set PARSER_WORKER_URL=https://your-worker-url
+```
+
+If the worker is unreachable or fails, the pipeline automatically falls back to
+Gemini-based extraction, then to the `needs_ocr` status as a last resort.
+
+## Deploy options
+
+- **Fly.io**: `fly launch --no-deploy && fly deploy` (512MB RAM is enough; first build is slow due to ML models)
+- **Google Cloud Run**: `gcloud run deploy --source . --port 8787`
+- **Railway/Render**: point them at this directory; they detect the Dockerfile
