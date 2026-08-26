@@ -14,6 +14,18 @@ let sqliteModulePromise: Promise<SQLiteModule | null> | null = null;
 let dbPromise: Promise<SQLiteDatabase | null> | null = null;
 const memorySources = new Map<string, SourceRecord>();
 const memoryAssets = new Map<string, GeneratedAssetRecord>();
+let activeCacheUser = '';
+
+/**
+ * Scope the local cache to one account. Rows written before this call
+ * (user_id = '') are treated as unowned legacy data and ignored.
+ */
+export function setActiveCacheUser(userId: string) {
+  if (activeCacheUser === userId) return;
+  activeCacheUser = userId;
+  memorySources.clear();
+  memoryAssets.clear();
+}
 
 async function loadSQLite() {
   if (!sqliteModulePromise) {
@@ -61,6 +73,8 @@ async function getDatabase() {
       await Promise.all([
         db.runAsync('ALTER TABLE sources ADD COLUMN subject TEXT').catch(() => null),
         db.runAsync('ALTER TABLE sources ADD COLUMN topic TEXT').catch(() => null),
+        db.runAsync("ALTER TABLE sources ADD COLUMN user_id TEXT NOT NULL DEFAULT ''").catch(() => null),
+        db.runAsync("ALTER TABLE generated_assets ADD COLUMN user_id TEXT NOT NULL DEFAULT ''").catch(() => null),
       ]);
 
       return db;
@@ -77,9 +91,10 @@ export async function cacheSource(source: SourceRecord) {
 
   await db.runAsync(
     `INSERT OR REPLACE INTO sources
-      (id, title, subject, topic, mime_type, storage_path, size, status, progress, stage, error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, user_id, title, subject, topic, mime_type, storage_path, size, status, progress, stage, error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     source.id,
+    activeCacheUser,
     source.title,
     source.subject,
     source.topic,
@@ -102,9 +117,10 @@ export async function cacheAsset(asset: GeneratedAssetRecord) {
 
   await db.runAsync(
     `INSERT OR REPLACE INTO generated_assets
-      (id, source_id, type, title, content_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, user_id, source_id, type, title, content_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     asset.id,
+    activeCacheUser,
     asset.sourceId,
     asset.type,
     asset.title,
@@ -133,7 +149,7 @@ export async function listCachedSources(): Promise<SourceRecord[]> {
     title: string;
     topic: string | null;
     updated_at: string;
-  }>('SELECT * FROM sources ORDER BY created_at DESC');
+  }>(`SELECT * FROM sources WHERE user_id = ? ORDER BY created_at DESC`, activeCacheUser);
 
   return rows.map((row: {
     created_at: string;
@@ -179,7 +195,7 @@ export async function listCachedAssets(): Promise<GeneratedAssetRecord[]> {
     source_id: string;
     title: string;
     type: 'study_pack';
-  }>('SELECT * FROM generated_assets ORDER BY created_at DESC');
+  }>(`SELECT * FROM generated_assets WHERE user_id = ? ORDER BY created_at DESC`, activeCacheUser);
 
   return rows.map((row: {
     content_json: string;
@@ -205,7 +221,7 @@ export async function removeCachedSource(sourceId: string) {
   if (!db) return;
 
   await Promise.all([
-    db.runAsync('DELETE FROM sources WHERE id = ?', sourceId),
-    db.runAsync('DELETE FROM generated_assets WHERE source_id = ?', sourceId),
+    db.runAsync('DELETE FROM sources WHERE id = ? AND user_id = ?', sourceId, activeCacheUser),
+    db.runAsync('DELETE FROM generated_assets WHERE source_id = ? AND user_id = ?', sourceId, activeCacheUser),
   ]);
 }

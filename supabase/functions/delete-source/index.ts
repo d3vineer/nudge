@@ -1,5 +1,5 @@
 import { handleOptions, json } from '../_shared/cors.ts';
-import { supabaseConfig, supabaseFetch } from '../_shared/supabase.ts';
+import { getUserIdFromAuth, supabaseConfig, supabaseFetch } from '../_shared/supabase.ts';
 
 type SourceRow = {
   id: string;
@@ -26,7 +26,13 @@ Deno.serve(async (request) => {
       return json({ error: 'sourceId is required.' }, 400);
     }
 
-    const [source] = await supabaseFetch<SourceRow[]>(`/rest/v1/sources?id=eq.${sourceId}&select=id,storage_path`);
+    // Only the owner may delete; a foreign or missing source is a no-op.
+    const userId = getUserIdFromAuth(request.headers.get('Authorization'));
+    if (!userId) {
+      return json({ error: 'Unauthorized. Missing or invalid user token.' }, 401);
+    }
+
+    const [source] = await supabaseFetch<SourceRow[]>(`/rest/v1/sources?id=eq.${sourceId}&user_id=eq.${userId}&select=id,storage_path`);
     if (!source) {
       return json({ deleted: true, sourceId });
     }

@@ -6,6 +6,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { FocusTimerProvider } from '@/components/focus-timer-controller';
 import { ThemeControllerProvider, useThemeController } from '@/components/theme-controller';
+import { setActiveUser } from '@/lib/active-user';
 import { supabase } from '@/lib/supabase';
 
 export default function TabLayout() {
@@ -29,11 +30,14 @@ function ThemedShell() {
   useEffect(() => {
     // 1. Check if they have a session when the app first opens
     supabase.auth.getSession().then(({ data: { session } }) => {
+      setActiveUser(session?.user?.id ?? '');
       setIsAuthenticated(!!session);
     });
 
     // 2. Listen continuously for login/logout events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Re-scopes all local stores (cache, review cards) to this account.
+      setActiveUser(session?.user?.id ?? '');
       setIsAuthenticated(!!session);
     });
 

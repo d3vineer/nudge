@@ -4,6 +4,22 @@ const sourceKey = 'nudge.sources';
 const assetKey = 'nudge.generatedAssets';
 const memorySources = new Map<string, SourceRecord>();
 const memoryAssets = new Map<string, GeneratedAssetRecord>();
+let activeCacheUser = '';
+
+/**
+ * Scope the local cache to one account. Storage keys are namespaced per user;
+ * rows written before this call (legacy unscoped data) are ignored.
+ */
+export function setActiveCacheUser(userId: string) {
+  if (activeCacheUser === userId) return;
+  activeCacheUser = userId;
+  memorySources.clear();
+  memoryAssets.clear();
+}
+
+function scopedKey(key: string) {
+  return `${key}:${activeCacheUser || 'anonymous'}`;
+}
 
 function canUseStorage() {
   return typeof localStorage !== 'undefined';
@@ -60,23 +76,23 @@ function dedupeSources(values: SourceRecord[]) {
 
 export async function cacheSource(source: SourceRecord) {
   memorySources.set(source.id, source);
-  const values = readStorage<SourceRecord>(sourceKey);
-  writeStorage(sourceKey, dedupeSources([source, ...values]));
+  const values = readStorage<SourceRecord>(scopedKey(sourceKey));
+  writeStorage(scopedKey(sourceKey), dedupeSources([source, ...values]));
 }
 
 export async function cacheAsset(asset: GeneratedAssetRecord) {
   memoryAssets.set(asset.sourceId, asset);
-  const values = readStorage<GeneratedAssetRecord>(assetKey).filter((item) => item.id !== asset.id);
-  writeStorage(assetKey, [asset, ...values]);
+  const values = readStorage<GeneratedAssetRecord>(scopedKey(assetKey)).filter((item) => item.id !== asset.id);
+  writeStorage(scopedKey(assetKey), [asset, ...values]);
 }
 
 export async function listCachedSources(): Promise<SourceRecord[]> {
-  const stored = readStorage<SourceRecord>(sourceKey);
+  const stored = readStorage<SourceRecord>(scopedKey(sourceKey));
   return stored.length > 0 ? dedupeSources(stored) : dedupeSources([...memorySources.values()]);
 }
 
 export async function listCachedAssets(): Promise<GeneratedAssetRecord[]> {
-  const stored = readStorage<GeneratedAssetRecord>(assetKey);
+  const stored = readStorage<GeneratedAssetRecord>(scopedKey(assetKey));
   return stored.length > 0 ? stored : [...memoryAssets.values()];
 }
 
@@ -85,10 +101,10 @@ export async function removeCachedSource(sourceId: string) {
   memoryAssets.delete(sourceId);
   writeStorage(
     sourceKey,
-    readStorage<SourceRecord>(sourceKey).filter((source) => source.id !== sourceId)
+    readStorage<SourceRecord>(scopedKey(sourceKey)).filter((source) => source.id !== sourceId)
   );
   writeStorage(
     assetKey,
-    readStorage<GeneratedAssetRecord>(assetKey).filter((asset) => asset.sourceId !== sourceId)
+    readStorage<GeneratedAssetRecord>(scopedKey(assetKey)).filter((asset) => asset.sourceId !== sourceId)
   );
 }

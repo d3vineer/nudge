@@ -59,6 +59,13 @@ export function getUserIdFromAuth(authHeader: string | null): string | null {
   }
 }
 
+export async function assertSourceOwnership(userId: string, sourceId: string): Promise<boolean> {
+  const rows = await supabaseFetch<Array<{ id: string }>>(
+    `/rest/v1/sources?id=eq.${sourceId}&user_id=eq.${userId}&select=id&limit=1`
+  );
+  return rows.length > 0;
+}
+
 export async function updateSource(sourceId: string, patch: Record<string, unknown>) {
   return supabaseFetch(`/rest/v1/sources?id=eq.${sourceId}`, {
     headers: { Prefer: 'return=representation' },

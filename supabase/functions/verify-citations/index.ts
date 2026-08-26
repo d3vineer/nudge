@@ -2,7 +2,7 @@ import { handleOptions, json } from '../_shared/cors.ts';
 
 import { verifyGroups, type CitedChunkLike, type CitedFlashcard, type CitedNote, type CitedQuizItem, type SectionPack } from '../_shared/citation.ts';
 
-import { supabaseFetch } from '../_shared/supabase.ts';
+import { assertSourceOwnership, getUserIdFromAuth, supabaseFetch } from '../_shared/supabase.ts';
 
 type AssetRow = {
   content_json: {
@@ -43,6 +43,11 @@ Deno.serve(async (request) => {
     const sourceId = String(body.sourceId ?? '').trim();
     if (!sourceId) {
       return json({ error: 'sourceId is required.' }, 400);
+    }
+
+    const userId = getUserIdFromAuth(request.headers.get('Authorization'));
+    if (!userId || !(await assertSourceOwnership(userId, sourceId))) {
+      return json({ error: 'Source not found.' }, 404);
     }
 
     const [asset] = await supabaseFetch<AssetRow[]>(

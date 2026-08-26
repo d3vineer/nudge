@@ -17,6 +17,17 @@ let memoryState: PersistedStudyState = {
   reviewCards: [],
   sessions: [],
 };
+let activeStateUser = '';
+
+/**
+ * Scope review cards and focus sessions to one account. Rows written before
+ * this call (user_id = '') are legacy/demo data and are ignored.
+ */
+export function setStudyStateUser(userId: string) {
+  if (activeStateUser === userId) return;
+  activeStateUser = userId;
+  memoryState = { reviewCards: [], sessions: [] };
+}
 
 async function loadSQLite() {
   if (!sqliteModulePromise) {
@@ -57,6 +68,10 @@ async function getDatabase() {
         // Column already exists; ignore.
       });
 
+      // Per-user scoping columns (rows from before this migration keep user_id = '').
+      await db.execAsync("ALTER TABLE review_cards ADD COLUMN user_id TEXT NOT NULL DEFAULT ''").catch(() => null);
+      await db.execAsync("ALTER TABLE focus_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''").catch(() => null);
+
       return db;
     });
   }
@@ -72,8 +87,9 @@ export async function saveReviewCards(cards: ReviewCard[]) {
   await Promise.all(
     cards.map((card) =>
       db.runAsync(
-        'INSERT OR REPLACE INTO review_cards (id, card_json, updated_at) VALUES (?, ?, ?)',
+        'INSERT OR REPLACE INTO review_cards (id, user_id, card_json, updated_at) VALUES (?, ?, ?, ?)',
         card.id,
+        activeStateUser,
         JSON.stringify(card),
         new Date().toISOString()
       )
@@ -88,7 +104,8 @@ export async function loadReviewCards(): Promise<ReviewCard[]> {
   }
 
   const rows = await db.getAllAsync<{ card_json: string }>(
-    'SELECT card_json FROM review_cards ORDER BY updated_at DESC'
+    'SELECT card_json FROM review_cards WHERE user_id = ? ORDER BY updated_at DESC',
+    activeStateUser
   );
 
   return rows.map((row) => JSON.parse(row.card_json) as ReviewCard);
@@ -101,9 +118,10 @@ export async function saveFocusSession(session: FocusSessionRecord) {
 
   await db.runAsync(
     `INSERT OR REPLACE INTO focus_sessions
-      (id, mode, phase, minutes, completed_at, note)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, user_id, mode, phase, minutes, completed_at, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     session.id,
+    activeStateUser,
     session.mode,
     session.phase,
     session.minutes,
@@ -125,7 +143,10 @@ export async function loadFocusSessions(): Promise<FocusSessionRecord[]> {
     mode: string;
     note: string | null;
     phase: 'study' | 'break';
-  }>('SELECT * FROM focus_sessions ORDER BY completed_at DESC LIMIT 100');
+  }>(
+    'SELECT * FROM focus_sessions WHERE user_id = ? ORDER BY completed_at DESC LIMIT 100',
+    activeStateUser
+  );
 
   return rows.map((row) => ({
     completedAt: row.completed_at,

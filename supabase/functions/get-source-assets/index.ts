@@ -1,6 +1,6 @@
 import { handleOptions, json } from '../_shared/cors.ts';
 
-import { supabaseFetch } from '../_shared/supabase.ts';
+import { getUserIdFromAuth, supabaseFetch } from '../_shared/supabase.ts';
 
 
 
@@ -14,6 +14,16 @@ if (options) return options;
 
 try {
 
+const userId = getUserIdFromAuth(request.headers.get('Authorization'));
+
+if (!userId) {
+
+return json({ error: 'Unauthorized. Missing or invalid user token.' }, 401);
+
+}
+
+const userFilter = `&user_id=eq.${userId}`;
+
 const url = new URL(request.url);
 
 const sourceId = url.searchParams.get('sourceId');
@@ -24,15 +34,21 @@ if (!sourceId) {
 
 const sources = await supabaseFetch<Array<Record<string, unknown>>>(
 
-'/rest/v1/sources?select=*&order=created_at.desc'
+`/rest/v1/sources?select=*&order=created_at.desc${userFilter}`
 
 );
 
-const assets = await supabaseFetch<Array<Record<string, unknown>>>(
+const sourceIds = sources.map((source) => source.id).join(',');
 
-'/rest/v1/generated_assets?select=*&order=created_at.desc'
+const assets = sourceIds.length > 0
 
-);
+? await supabaseFetch<Array<Record<string, unknown>>>(
+
+`/rest/v1/generated_assets?select=*&order=created_at.desc&source_id=in.(${sourceIds})`
+
+)
+
+: [];
 
 
 
@@ -50,9 +66,11 @@ sources,
 
 
 
+// Ownership check: the requested source must belong to the caller.
+
 const sources = await supabaseFetch<Array<Record<string, unknown>>>(
 
-`/rest/v1/sources?id=eq.${sourceId}&select=*`
+`/rest/v1/sources?id=eq.${sourceId}&select=*${userFilter}`
 
 );
 
@@ -66,7 +84,7 @@ const assets = await supabaseFetch<Array<Record<string, unknown>>>(
 
 return json({
 
-assets,
+assets: sources.length > 0 ? assets : [],
 
 source: sources[0] ?? null,
 
@@ -78,5 +96,4 @@ return json({ error: error instanceof Error ? error.message : 'Could not load as
 
 }
 
-}); 
-
+});

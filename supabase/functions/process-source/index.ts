@@ -1,6 +1,6 @@
 import { handleOptions, json } from '../_shared/cors.ts';
 
-import { supabaseConfig, supabaseFetch, updateJob, updateSource } from '../_shared/supabase.ts';
+import { assertSourceOwnership, getUserIdFromAuth, supabaseConfig, supabaseFetch, updateJob, updateSource } from '../_shared/supabase.ts';
 
 import { chunkBySections, detectSections, type SectionChunk } from '../_shared/chunking.ts';
 
@@ -1264,6 +1264,18 @@ if (!sourceId) {
 return json({ error: 'sourceId is required.' }, 400);
 
 }
+
+
+
+const userId = getUserIdFromAuth(request.headers.get('Authorization'));
+
+if (!userId || !(await assertSourceOwnership(userId, sourceId))) {
+
+return json({ error: 'Source not found.' }, 404);
+
+}
+
+
 
 logStage(sourceId, 'received');
 
