@@ -8,7 +8,7 @@ import { ThemedView } from '@/components/themed-view';
 import { hasSupabaseConfig } from '@/lib/env';
 import { listCachedAssets, listCachedSources } from '@/lib/parsing/cache';
 import { refreshParsingState } from '@/lib/parsing/pipeline';
-import { askSource, verifyCitations } from '@/lib/parsing/supabase-api';
+import { askSource, startProcessing, verifyCitations } from '@/lib/parsing/supabase-api';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { AskResponse, GeneratedAssetRecord, SourceRecord } from '@/types/parsing';
@@ -68,6 +68,16 @@ function sourceForAsset(asset: GeneratedAssetRecord, sources: SourceRecord[]) {
   return sources.find((source) => source.id === asset.sourceId);
 }
 
+function isLegacyAsset(asset: GeneratedAssetRecord) {
+  // Packs generated before the cited pipeline have no *_items arrays.
+  const content = asset.content;
+  return (
+    !content.note_items?.length &&
+    !content.flashcard_items?.length &&
+    !content.quiz_items?.length
+  );
+}
+
 export default function AssetsScreen() {
   const theme = useTheme();
   const isDark = theme.background === '#07111F';
@@ -87,6 +97,7 @@ export default function AssetsScreen() {
   const [askMessage, setAskMessage] = useState('');
   const [expandedCitation, setExpandedCitation] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isReprocessing, setIsReprocessing] = useState(false);
 
   const loadAssets = useCallback(async () => {
     const [cachedSources, cachedAssets] = await Promise.all([
@@ -227,6 +238,39 @@ export default function AssetsScreen() {
     }
   }
 
+  async function reprocessSelected() {
+    if (!selectedAsset || isReprocessing) return;
+
+    setIsReprocessing(true);
+    setStatusText('Reprocessing with the new pipeline...');
+    try {
+      await startProcessing(selectedAsset.sourceId);
+
+      // Poll until the source leaves the processing states (or give up after ~3 min).
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+        const remote = await refreshParsingState();
+        setAssets(remote.assets);
+        setSources(remote.sources);
+
+        const source = remote.sources.find((entry) => entry.id === selectedAsset.sourceId);
+        if (!source || source.status === 'ready' || source.status === 'failed') {
+          setStatusText(
+            source?.status === 'failed'
+              ? `Reprocess failed: ${source.error ?? 'unknown error'}`
+              : 'Reprocess complete - section-aware study pack generated.'
+          );
+          break;
+        }
+        setStatusText(`Reprocessing... ${source.stage} (${source.progress}%)`);
+      }
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : 'Could not reprocess this document.');
+    } finally {
+      setIsReprocessing(false);
+    }
+  }
+
   return (
     <StudyScreen
       eyebrow="Study tools"
@@ -344,6 +388,13 @@ export default function AssetsScreen() {
                   <ThemedText type="subtitle">{selectedAsset.title}</ThemedText>
                 </View>
                 <View style={styles.headerActions}>
+                  {isLegacyAsset(selectedAsset) && (
+                    <ActionButton
+                      label={isReprocessing ? 'Reprocessing...' : 'Reprocess'}
+                      variant="secondary"
+                      onPress={reprocessSelected}
+                    />
+                  )}
                   {selectedAsset.content.verified === false && (
                     <ActionButton
                       label={isVerifying ? 'Verifying...' : 'Verify citations'}

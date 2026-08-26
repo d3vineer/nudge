@@ -168,6 +168,8 @@ return '';
 
 
 
+try {
+
 const response = await fetch(`${workerUrl.replace(/\/$/, '')}/extract`, {
 
 body: JSON.stringify({
@@ -194,13 +196,27 @@ const data = await response.json();
 
 if (!response.ok) {
 
-throw new Error(data?.error ?? 'Parser worker failed.');
+// Fall back to Gemini OCR instead of failing the whole pipeline.
+
+logStage(source.id, 'parser_worker_failed', data?.error ?? `status ${response.status}`);
+
+return '';
 
 }
 
 
 
 return String(data.text ?? '');
+
+} catch (workerError) {
+
+// Worker unreachable (network error): fall back to Gemini OCR.
+
+logStage(source.id, 'parser_worker_unreachable', workerError instanceof Error ? workerError.message : 'unknown');
+
+return '';
+
+}
 
 }
 
